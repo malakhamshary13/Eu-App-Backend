@@ -1,23 +1,20 @@
-# Default fallback
+# Default reviewer (fallback for everything)
 * @malakhamshary13
 
-# Authentication system
-/src/auth/ @aligad12 @Karim-Mohamed-Elsayed
+# Core business logic
+/core/ @Karim-Mohamed-Elsayed
 
-# User management / profiles
-/src/users/ @aligad12
+# Database layer
+/db/ @Karim-Mohamed-Elsayed @aligad12
 
-# Workout system
-/src/workouts/ @Karim-Mohamed-Elsayed
+# Feature modules (main logic of app)
+/modules/ @Karim-Mohamed-Elsayed @aligad12
 
-# Meal system
-/src/meals/ @Karim-Mohamed-Elsayed
+# Background workers / async tasks
+/worker/ @aligad12
 
-# Database / models
-/src/db/ @Karim-Mohamed-Elsayed @aligad12
+# Project entry point
+main.py @malakhamshary13 @Karim-Mohamed-Elsayed
 
-# API routes (core system layer)
-/src/routes/ @malakhamshary13 @aligad12 @Karim-Mohamed-Elsayed
-
-# Core app config
-/src/ @malakhamshary13
+# Dependencies / config
+requirements.txt @malakhamshary13
