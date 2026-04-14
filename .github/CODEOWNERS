@@ -1,1 +1,11 @@
+# Default reviewers
+* @malakhamshary13
 
+# Auth system
+/src/auth/ @aligad12 @Karim-Mohamed-Elsayed
+
+# Workout logic
+/src/workouts/ @Karim-Mohamed-Elsayed
+
+# Database
+/src/db/ @Karim-Mohamed-Elsayed @aligad12
