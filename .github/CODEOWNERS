@@ -1,11 +1,23 @@
-# Default reviewers
+# Default fallback
 * @malakhamshary13
 
-# Auth system
+# Authentication system
 /src/auth/ @aligad12 @Karim-Mohamed-Elsayed
 
-# Workout logic
+# User management / profiles
+/src/users/ @aligad12
+
+# Workout system
 /src/workouts/ @Karim-Mohamed-Elsayed
 
-# Database
+# Meal system
+/src/meals/ @Karim-Mohamed-Elsayed
+
+# Database / models
 /src/db/ @Karim-Mohamed-Elsayed @aligad12
+
+# API routes (core system layer)
+/src/routes/ @malakhamshary13 @aligad12 @Karim-Mohamed-Elsayed
+
+# Core app config
+/src/ @malakhamshary13
