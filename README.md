@@ -73,13 +73,7 @@ http://localhost:8000/docs
 
 ## Project Structure
 
-app/
-├── routes/
-├── models/
-├── schemas/
-├── services/
-└── database/
-
+////
 
 ---
 
