@@ -2,19 +2,19 @@
 * @malakhamshary13
 
 # Core business logic
-/core/ @Karim-Mohamed-Elsayed
+/core/ @Karim-Mohamed-Elsayed @malakhamshary13
 
 # Database layer
-/db/ @Karim-Mohamed-Elsayed @aligad12
+/db/ @Karim-Mohamed-Elsayed @aligad12 @malakhamshary13
 
 # Feature modules (main logic of app)
-/modules/ @Karim-Mohamed-Elsayed @aligad12
+/modules/ @Karim-Mohamed-Elsayed @aligad12 @malakhamshary13
 
 # Background workers / async tasks
-/worker/ @aligad12
+/worker/ @aligad12 @malakhamshary13
 
 # Project entry point
-main.py @malakhamshary13 @Karim-Mohamed-Elsayed
+main.py @malakhamshary13 @Karim-Mohamed-Elsayed @malakhamshary13
 
 # Dependencies / config
-requirements.txt @malakhamshary13
+requirements.txt @malakhamshary13 
