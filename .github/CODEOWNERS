@@ -1,5 +1,5 @@
 # Default reviewer (fallback for everything)
-* @malakhamshary13
+* @Karim-Mohamed-Elsayed
 
 # Core business logic
 /core/ @Karim-Mohamed-Elsayed @malakhamshary13
@@ -11,10 +11,10 @@
 /modules/ @Karim-Mohamed-Elsayed @aligad12 @malakhamshary13
 
 # Background workers / async tasks
-/worker/ @aligad12 @malakhamshary13
+/worker/ @malakhamshary13 @Karim-Mohamed-Elsayed
 
 # Project entry point
-main.py @malakhamshary13 @Karim-Mohamed-Elsayed @malakhamshary13
+main.py @malakhamshary13 @Karim-Mohamed-Elsayed @malakhamshary13 
 
 # Dependencies / config
-requirements.txt @malakhamshary13 
+requirements.txt @Karim-Mohamed-Elsayed
