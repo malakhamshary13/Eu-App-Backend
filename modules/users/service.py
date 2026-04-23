@@ -1,11 +1,12 @@
 from datetime import timedelta
+from decimal import Decimal
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from core.config import settings
 from core.security import hash_password, verify_password, create_access_token
 from modules.users.repository import AuthRepository
-from modules.users.schemas import UserCreate
+from modules.users.schemas import UserCreate, UserMetricInput
 
 
 class AuthService:
@@ -49,10 +50,11 @@ class AuthService:
             data={"sub": user.Name},
             expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         )
-
+        # id = db.query(user.Id).filter(user.Name == user_data.username).first()[0]
         return {
             "access_token": access_token,
-            "token_type": "bearer"
+            "token_type": "bearer",
+            "user_id": str(user.UserId)
         }
 
     def login_user(self, db: Session, username: str, password: str):
@@ -76,5 +78,37 @@ class AuthService:
 
         return {
             "access_token": access_token,
-            "token_type": "bearer"
+            "token_type": "bearer",
+            "user_id": str(user.UserId)
         }
+    # Map snake_case schema fields → PascalCase model columns
+    _METRIC_FIELD_MAP = {
+        "weight": "Weight",
+        "height": "Height",
+        "age": "Age",
+        "gender": "Gender",
+        "primary_goal": "PrimaryGoal",
+        "fitness_level": "FitnessLevel",
+        "activity_level": "ActivityLevel",
+        "daily_calorie_target": "DailyCalorieTarget",
+        "injury_details": "InjuryDetails",
+        "recovery_stage": "RecoveryStage",
+        "medical_diet_notes": "MedicalDietNotes",
+    }
+
+    def store_user_metrics(self, db: Session, user_id, data: UserMetricInput):
+        existing_profile = self.repo.get_health_profile_by_user_id(db, user_id)
+        raw = data.dict(exclude_unset=True)
+
+        profile_data = {}
+        for k, v in raw.items():
+            if k in ("weight", "height") and not isinstance(v, Decimal):
+                profile_data[self._METRIC_FIELD_MAP[k]] = Decimal(str(v))
+            else:
+                profile_data[self._METRIC_FIELD_MAP[k]] = v
+
+        if existing_profile:
+            return self.repo.update_health_profile(db, existing_profile, profile_data)
+        else:
+            return self.repo.create_health_profile(db, user_id, profile_data)
+            return self.repo.create_health_profile(db, user_id, profile_data)
