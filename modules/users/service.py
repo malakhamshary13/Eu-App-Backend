@@ -4,8 +4,8 @@ from sqlalchemy.orm import Session
 
 from core.config import settings
 from core.security import hash_password, verify_password, create_access_token
-from modules.workouts.repository import AuthRepository
-from modules.workouts.schemas import UserCreate
+from modules.users.repository import AuthRepository
+from modules.users.schemas import UserCreate
 
 
 class AuthService:
@@ -27,9 +27,6 @@ class AuthService:
                 detail="Email already exists"
             )
 
-        print("RAW PASSWORD:", repr(user_data.password))
-        print("PASSWORD BYTES:", len(user_data.password.encode("utf-8")))
-
         if len(user_data.password.encode("utf-8")) > 72:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -38,12 +35,25 @@ class AuthService:
 
         hashed_pw = hash_password(user_data.password)
 
-        return self.repo.create_user(
+        user = self.repo.create_user(
             db=db,
             username=user_data.username,
             email=user_data.email,
-            hashed_password=hashed_pw
+            hashed_password=hashed_pw,
+            role=user_data.role,
+            is_active=user_data.is_active,
+            google_auth_id=user_data.google_auth_id
         )
+
+        access_token = create_access_token(
+            data={"sub": user.Name},
+            expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        )
+
+        return {
+            "access_token": access_token,
+            "token_type": "bearer"
+        }
 
     def login_user(self, db: Session, username: str, password: str):
         if len(password.encode("utf-8")) > 72:
@@ -53,14 +63,14 @@ class AuthService:
             )
 
         user = self.repo.get_user_by_username(db, username)
-        if not user or not verify_password(password, user.hashed_password):
+        if not user or not verify_password(password, user.PasswordHash):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid username or password"
             )
 
         access_token = create_access_token(
-            data={"sub": user.username},
+            data={"sub": user.Name},
             expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         )
 

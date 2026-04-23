@@ -1,17 +1,19 @@
 from pydantic import BaseModel, EmailStr, Field
+from typing import Optional, Literal
+
 
 class UserCreate(BaseModel):
     username: str
     email: EmailStr
     password: str = Field(..., min_length=6, max_length=72)
+    role: Literal["Admin", "General", "Fitness", "Rehab", "Chronic"] = "General"
+    is_active: bool = True
+    google_auth_id: Optional[str] = None
 
-class UserOut(BaseModel):
-    id: int
+    
+class UserLogin(BaseModel):
     username: str
-    email: EmailStr
-
-    class Config:
-        from_attributes = True
+    password: str
 
 class Token(BaseModel):
     access_token: str
