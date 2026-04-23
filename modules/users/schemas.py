@@ -5,10 +5,11 @@ from typing import Optional, Literal
 class UserCreate(BaseModel):
     username: str
     email: EmailStr
-    password: str = Field(..., min_length=6, max_length=72)
-    role: Literal["Admin", "General", "Fitness", "Rehab", "Chronic"] = "General"
-    is_active: bool = True
+    password: str
+    role: Optional[str] = "General"
+    is_active: Optional[bool] = True
     google_auth_id: Optional[str] = None
+    goal: Optional[str] = "maintain"
 
     
 class UserLogin(BaseModel):

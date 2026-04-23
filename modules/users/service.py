@@ -42,7 +42,8 @@ class AuthService:
             hashed_password=hashed_pw,
             role=user_data.role,
             is_active=user_data.is_active,
-            google_auth_id=user_data.google_auth_id
+            google_auth_id=user_data.google_auth_id,
+            goal=user_data.goal,
         )
 
         access_token = create_access_token(
