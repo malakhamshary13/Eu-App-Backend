@@ -1,11 +1,15 @@
 from fastapi import FastAPI
-from db.database import Base, engine
 from modules.users.router import router as auth_router
-from modules.exercises.router import router as exercises_router
-from modules.users import models
-from modules.exercises import models as exercise_models
 from fastapi.middleware.cors import CORSMiddleware
-app = FastAPI(title="EU App Backend API")
+
+# Tables are managed by Supabase migrations — we do NOT call create_all here.
+# SQLAlchemy is used only as a query layer over existing Supabase tables.
+
+app = FastAPI(
+    title="EU App Backend API",
+    description="Fitness & nutrition backend powered by Supabase",
+    version="1.0.0",
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -14,12 +18,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-Base.metadata.create_all(bind=engine)
+
 
 
 app.include_router(auth_router)
-app.include_router(exercises_router)
 
 @app.get("/")
 def root():
-    return {"message": "API is running"}
+    return {"message": "EU APP  is steady and ready to serve! (KEMO is here to help you with your fitness journey)"}

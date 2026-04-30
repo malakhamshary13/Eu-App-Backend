@@ -1,0 +1,1100 @@
+-- ============================================================
+-- EuApp v2 — Full PostgreSQL Schema
+-- Supabase-compatible | No RLS | No auth schema conflict
+-- Run this in Supabase SQL Editor
+-- ============================================================
+
+
+-- ============================================================
+-- 0. CREATE SCHEMAS
+-- ============================================================
+CREATE SCHEMA IF NOT EXISTS accounts;  -- replaces 'auth' (reserved by Supabase)
+CREATE SCHEMA IF NOT EXISTS profile;
+CREATE SCHEMA IF NOT EXISTS library;
+CREATE SCHEMA IF NOT EXISTS plans;
+CREATE SCHEMA IF NOT EXISTS tracker;
+CREATE SCHEMA IF NOT EXISTS system;
+
+
+-- ============================================================
+-- 1. ACCOUNTS SCHEMA — Identity & Security
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS accounts.users (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email           VARCHAR UNIQUE NOT NULL,
+    password_hash   TEXT,
+    full_name       VARCHAR,
+    google_auth_id  VARCHAR UNIQUE,
+    role            VARCHAR NOT NULL DEFAULT 'general'
+                        CHECK (role IN ('rehab', 'general', 'fitness')),
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS accounts.admins (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username        VARCHAR NOT NULL,
+    email           VARCHAR UNIQUE NOT NULL,
+    password_hash   TEXT NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS accounts.password_resets (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID NOT NULL REFERENCES accounts.users(id) ON DELETE CASCADE,
+    token       VARCHAR NOT NULL,
+    expires_at  TIMESTAMPTZ NOT NULL
+);
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_users_email          ON accounts.users(email);
+CREATE INDEX IF NOT EXISTS idx_users_google_id      ON accounts.users(google_auth_id);
+CREATE INDEX IF NOT EXISTS idx_pwd_reset_user       ON accounts.password_resets(user_id);
+CREATE INDEX IF NOT EXISTS idx_pwd_reset_token      ON accounts.password_resets(token);
+
+
+-- ============================================================
+-- 2. PROFILE SCHEMA — Personalized User Data
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS profile.health_profiles (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id             UUID UNIQUE NOT NULL REFERENCES accounts.users(id) ON DELETE CASCADE,
+    age                 INT CHECK (age > 0 AND age < 130),
+    weight              DECIMAL(5,2),   -- kg
+    height              DECIMAL(5,2),   -- cm
+    bmi                 DECIMAL(4,2),
+    primary_goal        VARCHAR,        -- e.g. 'weight_loss', 'muscle_gain', 'rehab'
+    injury_details      TEXT,
+    recovery_stage      VARCHAR,        -- e.g. 'acute', 'subacute', 'chronic'
+    medical_diet_notes  TEXT
+);
+
+CREATE TABLE IF NOT EXISTS profile.user_chronic_conditions (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    profile_id      UUID NOT NULL REFERENCES profile.health_profiles(id) ON DELETE CASCADE,
+    condition_name  VARCHAR NOT NULL
+);
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_health_profiles_user       ON profile.health_profiles(user_id);
+CREATE INDEX IF NOT EXISTS idx_chronic_conditions_profile ON profile.user_chronic_conditions(profile_id);
+
+
+-- ============================================================
+-- 3. LIBRARY SCHEMA — Master Content
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS library.exercises (
+    id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    source_id                  VARCHAR UNIQUE,  -- original ID from JSON (e.g. "4F5866F8")
+    title                      VARCHAR NOT NULL,
+    exercise_type              VARCHAR,         -- e.g. 'weight_reps', 'reps_only', 'duration'
+    muscle_group               VARCHAR,         -- primary muscle group
+    equipment_category         VARCHAR,         -- e.g. 'barbell', 'dumbbell', 'machine', 'none'
+    url                        TEXT,            -- video/resource URL
+    media_type                 VARCHAR,         -- e.g. 'video', 'gif', 'image'
+    thumbnail_url              TEXT,
+    instructions               TEXT,
+    manual_tag                 VARCHAR,         -- search/filter helper tag from source data
+    priority                   INT DEFAULT 0,   -- display ordering
+    is_custom                  BOOLEAN NOT NULL DEFAULT FALSE,
+    is_archived                BOOLEAN NOT NULL DEFAULT FALSE,
+    hundred_percent_bodyweight BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS library.exercise_secondary_muscles (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    exercise_id  UUID NOT NULL REFERENCES library.exercises(id) ON DELETE CASCADE,
+    muscle_name  VARCHAR NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS library.meals (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title         VARCHAR NOT NULL,
+    url           TEXT,
+    image_url     TEXT,
+    servings      INT CHECK (servings > 0),
+    prep_time     VARCHAR(50),
+    time_to_make  VARCHAR(50),
+    instructions  JSONB,               -- array of step strings
+    guide_info    TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS library.meal_nutrition (
+    meal_id         UUID PRIMARY KEY REFERENCES library.meals(id) ON DELETE CASCADE,
+    calories_cal    INT,
+    kilojoules_kj   INT,
+    protein_g       DECIMAL(6,2),
+    total_fat_g     DECIMAL(6,2),
+    carbohydrates_g DECIMAL(6,2),
+    sugar_g         DECIMAL(6,2)
+);
+
+CREATE TABLE IF NOT EXISTS library.meal_tags (
+    id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    meal_id   UUID NOT NULL REFERENCES library.meals(id) ON DELETE CASCADE,
+    tag_name  VARCHAR(100) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS library.ingredients (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    meal_id      UUID NOT NULL REFERENCES library.meals(id) ON DELETE CASCADE,
+    description  TEXT NOT NULL
+);
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_exercises_type     ON library.exercises(exercise_type);
+CREATE INDEX IF NOT EXISTS idx_exercises_muscle   ON library.exercises(muscle_group);
+CREATE INDEX IF NOT EXISTS idx_exercises_archived ON library.exercises(is_archived);
+CREATE INDEX IF NOT EXISTS idx_sec_muscles_ex     ON library.exercise_secondary_muscles(exercise_id);
+CREATE INDEX IF NOT EXISTS idx_meals_title        ON library.meals(title);
+CREATE INDEX IF NOT EXISTS idx_meal_tags_meal     ON library.meal_tags(meal_id);
+CREATE INDEX IF NOT EXISTS idx_ingredients_meal   ON library.ingredients(meal_id);
+
+
+-- ============================================================
+-- 4. PLANS SCHEMA — Structured Programs
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS plans.workout_plans (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title               VARCHAR NOT NULL,
+    difficulty_level    VARCHAR CHECK (difficulty_level IN ('beginner', 'intermediate', 'advanced')),
+    created_by_admin_id UUID REFERENCES accounts.admins(id) ON DELETE SET NULL,
+    created_by_user_id  UUID REFERENCES accounts.users(id) ON DELETE SET NULL,
+    is_template         BOOLEAN NOT NULL DEFAULT FALSE,
+    CHECK (
+        (created_by_admin_id IS NOT NULL AND created_by_user_id IS NULL) OR
+        (created_by_admin_id IS NULL     AND created_by_user_id IS NOT NULL)
+    )
+);
+
+CREATE TABLE IF NOT EXISTS plans.workout_plan_items (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workout_plan_id   UUID NOT NULL REFERENCES plans.workout_plans(id) ON DELETE CASCADE,
+    exercise_id       UUID NOT NULL REFERENCES library.exercises(id) ON DELETE RESTRICT,
+    sets              INT CHECK (sets > 0),
+    reps              INT CHECK (reps > 0),
+    rest_time_seconds INT CHECK (rest_time_seconds >= 0)
+);
+
+CREATE TABLE IF NOT EXISTS plans.meal_plans (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title               VARCHAR NOT NULL,
+    goal_type           VARCHAR,        -- e.g. 'weight_loss', 'muscle_gain', 'maintenance'
+    created_by_admin_id UUID REFERENCES accounts.admins(id) ON DELETE SET NULL,
+    created_by_user_id  UUID REFERENCES accounts.users(id) ON DELETE SET NULL,
+    is_template         BOOLEAN NOT NULL DEFAULT FALSE,
+    CHECK (
+        (created_by_admin_id IS NOT NULL AND created_by_user_id IS NULL) OR
+        (created_by_admin_id IS NULL     AND created_by_user_id IS NOT NULL)
+    )
+);
+
+CREATE TABLE IF NOT EXISTS plans.meal_plan_items (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    meal_plan_id UUID NOT NULL REFERENCES plans.meal_plans(id) ON DELETE CASCADE,
+    meal_id      UUID NOT NULL REFERENCES library.meals(id) ON DELETE RESTRICT,
+    day_number   INT NOT NULL CHECK (day_number >= 1),
+    meal_type    VARCHAR NOT NULL CHECK (meal_type IN ('breakfast', 'lunch', 'dinner', 'snack'))
+);
+
+CREATE TABLE IF NOT EXISTS plans.user_plan_enrollments (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         UUID NOT NULL REFERENCES accounts.users(id) ON DELETE CASCADE,
+    workout_plan_id UUID REFERENCES plans.workout_plans(id) ON DELETE SET NULL,
+    meal_plan_id    UUID REFERENCES plans.meal_plans(id) ON DELETE SET NULL,
+    status          VARCHAR NOT NULL DEFAULT 'active'
+                        CHECK (status IN ('active', 'paused', 'completed', 'dropped')),
+    enrolled_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_workout_plans_admin ON plans.workout_plans(created_by_admin_id);
+CREATE INDEX IF NOT EXISTS idx_workout_plans_user  ON plans.workout_plans(created_by_user_id);
+CREATE INDEX IF NOT EXISTS idx_workout_items_plan  ON plans.workout_plan_items(workout_plan_id);
+CREATE INDEX IF NOT EXISTS idx_workout_items_ex    ON plans.workout_plan_items(exercise_id);
+CREATE INDEX IF NOT EXISTS idx_meal_plans_admin    ON plans.meal_plans(created_by_admin_id);
+CREATE INDEX IF NOT EXISTS idx_meal_plans_user     ON plans.meal_plans(created_by_user_id);
+CREATE INDEX IF NOT EXISTS idx_meal_items_plan     ON plans.meal_plan_items(meal_plan_id);
+CREATE INDEX IF NOT EXISTS idx_enrollments_user    ON plans.user_plan_enrollments(user_id);
+CREATE INDEX IF NOT EXISTS idx_enrollments_status  ON plans.user_plan_enrollments(status);
+
+
+-- ============================================================
+-- 5. TRACKER SCHEMA — Live Activity
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS tracker.workout_sessions (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id          UUID NOT NULL REFERENCES accounts.users(id) ON DELETE CASCADE,
+    workout_plan_id  UUID REFERENCES plans.workout_plans(id) ON DELETE SET NULL,
+    started_at       TIMESTAMPTZ,
+    completed_at     TIMESTAMPTZ,
+    status           VARCHAR NOT NULL DEFAULT 'in_progress'
+                         CHECK (status IN ('in_progress', 'completed', 'abandoned')),
+    CHECK (completed_at IS NULL OR completed_at >= started_at)
+);
+
+CREATE TABLE IF NOT EXISTS tracker.workout_session_items (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id     UUID NOT NULL REFERENCES tracker.workout_sessions(id) ON DELETE CASCADE,
+    exercise_id    UUID NOT NULL REFERENCES library.exercises(id) ON DELETE RESTRICT,
+    set_number     INT NOT NULL CHECK (set_number > 0),
+    reps_completed INT CHECK (reps_completed >= 0),
+    weight_used    DECIMAL(6,2) CHECK (weight_used >= 0),  -- kg
+    is_completed   BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS tracker.user_workout_schedule (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         UUID NOT NULL REFERENCES accounts.users(id) ON DELETE CASCADE,
+    workout_plan_id UUID REFERENCES plans.workout_plans(id) ON DELETE SET NULL,
+    scheduled_date  DATE NOT NULL,
+    is_completed    BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS tracker.user_meal_schedule (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id        UUID NOT NULL REFERENCES accounts.users(id) ON DELETE CASCADE,
+    meal_id        UUID NOT NULL REFERENCES library.meals(id) ON DELETE RESTRICT,
+    scheduled_date DATE NOT NULL,
+    meal_type      VARCHAR NOT NULL CHECK (meal_type IN ('breakfast', 'lunch', 'dinner', 'snack')),
+    is_eaten       BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS tracker.daily_logs (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id            UUID NOT NULL REFERENCES accounts.users(id) ON DELETE CASCADE,
+    date               DATE NOT NULL,
+    calories_consumed  INT CHECK (calories_consumed >= 0),
+    workouts_completed INT CHECK (workouts_completed >= 0),
+    recovery_notes     TEXT,
+    UNIQUE (user_id, date)  -- one log per user per day
+);
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_sessions_user         ON tracker.workout_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_plan         ON tracker.workout_sessions(workout_plan_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_status       ON tracker.workout_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_session_items_session ON tracker.workout_session_items(session_id);
+CREATE INDEX IF NOT EXISTS idx_workout_sched_user    ON tracker.user_workout_schedule(user_id);
+CREATE INDEX IF NOT EXISTS idx_workout_sched_date    ON tracker.user_workout_schedule(scheduled_date);
+CREATE INDEX IF NOT EXISTS idx_meal_sched_user       ON tracker.user_meal_schedule(user_id);
+CREATE INDEX IF NOT EXISTS idx_meal_sched_date       ON tracker.user_meal_schedule(scheduled_date);
+CREATE INDEX IF NOT EXISTS idx_daily_logs_user       ON tracker.daily_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_daily_logs_date       ON tracker.daily_logs(date);
+
+
+-- ============================================================
+-- 6. SYSTEM SCHEMA — Audit & Notifications
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS system.notifications (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id    UUID NOT NULL REFERENCES accounts.users(id) ON DELETE CASCADE,
+    title      VARCHAR NOT NULL,
+    message    TEXT NOT NULL,
+    type       VARCHAR NOT NULL CHECK (type IN ('info', 'warning', 'success', 'alert')),
+    is_read    BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS system.audit_logs (
+    id         BIGSERIAL PRIMARY KEY,
+    actor_id   UUID,
+    actor_type VARCHAR CHECK (actor_type IN ('user', 'admin', 'system')),
+    action     VARCHAR NOT NULL,   -- e.g. 'INSERT', 'UPDATE', 'DELETE', 'LOGIN'
+    table_name VARCHAR,
+    old_values JSONB,
+    new_values JSONB,
+    timestamp  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON system.notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_read ON system.notifications(is_read);
+CREATE INDEX IF NOT EXISTS idx_audit_actor        ON system.audit_logs(actor_id);
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp    ON system.audit_logs(timestamp);
+CREATE INDEX IF NOT EXISTS idx_audit_table        ON system.audit_logs(table_name);
+
+
+-- ============================================================
+-- ✅ DONE — Schema created successfully
+-- ============================================================
+
+
+ALTER TABLE library.meals 
+ADD CONSTRAINT meals_title_unique UNIQUE (title);
+
+SELECT * FROM library.exercises
+
+--Step 1 --Drop the old accounts schema
+
+-- Dropping accounts schema
+DROP TABLE IF EXISTS accounts.password_resets CASCADE;
+DROP TABLE IF EXISTS accounts.admins CASCADE;
+DROP TABLE IF EXISTS accounts.users CASCADE;
+DROP SCHEMA IF EXISTS accounts CASCADE;
+
+-- Step 2 — Recreate profile.users as the extension table
+CREATE TABLE IF NOT EXISTS profile.users (
+    id          UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    full_name   VARCHAR,
+    role        VARCHAR NOT NULL DEFAULT 'general'
+                    CHECK (role IN ('admin', 'rehab', 'general', 'fitness')),
+    is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_profile_users_role ON profile.users(role);
+
+--Step 3  - Auto-Create profile row on every signup
+
+CREATE OR REPLACE FUNCTION profile.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO profile.users (id, full_name, role)
+  VALUES (
+    NEW.id,
+    NEW.raw_user_meta_data->>'full_name',
+    COALESCE(NEW.raw_user_meta_data->>'role', 'general')
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION profile.handle_new_user();
+
+-- Step 4 -- Fix profile.health_profiles FK
+  ALTER TABLE profile.health_profiles
+  DROP CONSTRAINT IF EXISTS health_profiles_user_id_fkey,
+  ADD CONSTRAINT health_profiles_user_id_fkey
+    FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+
+--Step 5 -- Fix plans tables (merge the two creator columns into one)
+
+    -- workout_plans
+ALTER TABLE plans.workout_plans
+  DROP CONSTRAINT IF EXISTS workout_plans_created_by_admin_id_fkey,
+  DROP CONSTRAINT IF EXISTS workout_plans_created_by_user_id_fkey,
+  DROP COLUMN IF EXISTS created_by_admin_id,
+  DROP COLUMN IF EXISTS created_by_user_id,
+  ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS creator_role VARCHAR
+      CHECK (creator_role IN ('admin', 'user'));
+
+-- meal_plans
+ALTER TABLE plans.meal_plans
+  DROP CONSTRAINT IF EXISTS meal_plans_created_by_admin_id_fkey,
+  DROP CONSTRAINT IF EXISTS meal_plans_created_by_user_id_fkey,
+  DROP COLUMN IF EXISTS created_by_admin_id,
+  DROP COLUMN IF EXISTS created_by_user_id,
+  ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS creator_role VARCHAR
+      CHECK (creator_role IN ('admin', 'user'));
+
+-- user_plan_enrollments
+ALTER TABLE plans.user_plan_enrollments
+  DROP CONSTRAINT IF EXISTS user_plan_enrollments_user_id_fkey,
+  ADD CONSTRAINT user_plan_enrollments_user_id_fkey
+    FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+-- Step 6 -- Fix Tracker tables
+
+ALTER TABLE tracker.workout_sessions
+  DROP CONSTRAINT IF EXISTS workout_sessions_user_id_fkey,
+  ADD CONSTRAINT workout_sessions_user_id_fkey
+    FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE tracker.user_workout_schedule
+  DROP CONSTRAINT IF EXISTS user_workout_schedule_user_id_fkey,
+  ADD CONSTRAINT user_workout_schedule_user_id_fkey
+    FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE tracker.user_meal_schedule
+  DROP CONSTRAINT IF EXISTS user_meal_schedule_user_id_fkey,
+  ADD CONSTRAINT user_meal_schedule_user_id_fkey
+    FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE tracker.daily_logs
+  DROP CONSTRAINT IF EXISTS daily_logs_user_id_fkey,
+  ADD CONSTRAINT daily_logs_user_id_fkey
+    FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+-- Step 7 -- Fix system tables
+
+ALTER TABLE system.notifications
+  DROP CONSTRAINT IF EXISTS notifications_user_id_fkey,
+  ADD CONSTRAINT notifications_user_id_fkey
+    FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+-- step 8 -- enable RLS and add policies
+-- ── profile.users ──────────────────────────────────────────
+ALTER TABLE profile.users ENABLE ROW LEVEL SECURITY;
+
+-- Users can read and update only their own row
+CREATE POLICY "users: read own profile"
+  ON profile.users FOR SELECT
+  USING (auth.uid() = id);
+
+CREATE POLICY "users: update own profile"
+  ON profile.users FOR UPDATE
+  USING (auth.uid() = id);
+
+-- Admins can read all profiles
+CREATE POLICY "admins: read all profiles"
+  ON profile.users FOR SELECT
+  USING (
+    (SELECT role FROM profile.users WHERE id = auth.uid()) = 'admin'
+  );
+
+
+-- ── plans.workout_plans ────────────────────────────────────
+ALTER TABLE plans.workout_plans ENABLE ROW LEVEL SECURITY;
+
+-- Admins can do everything
+CREATE POLICY "admins: full access workout plans"
+  ON plans.workout_plans FOR ALL
+  USING (
+    (SELECT role FROM profile.users WHERE id = auth.uid()) = 'admin'
+  );
+
+-- Users can read all templates
+CREATE POLICY "users: read templates"
+  ON plans.workout_plans FOR SELECT
+  USING (is_template = TRUE);
+
+-- Users can CRUD their own personal plans
+CREATE POLICY "users: manage own plans"
+  ON plans.workout_plans FOR ALL
+  USING (
+    is_template = FALSE AND created_by = auth.uid()
+  );
+
+
+-- ── plans.meal_plans ───────────────────────────────────────
+ALTER TABLE plans.meal_plans ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "admins: full access meal plans"
+  ON plans.meal_plans FOR ALL
+  USING (
+    (SELECT role FROM profile.users WHERE id = auth.uid()) = 'admin'
+  );
+
+CREATE POLICY "users: read meal templates"
+  ON plans.meal_plans FOR SELECT
+  USING (is_template = TRUE);
+
+CREATE POLICY "users: manage own meal plans"
+  ON plans.meal_plans FOR ALL
+  USING (
+    is_template = FALSE AND created_by = auth.uid()
+  );
+
+
+-- ── library (admins only write, everyone reads) ────────────
+ALTER TABLE library.exercises ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "everyone: read exercises"
+  ON library.exercises FOR SELECT
+  USING (TRUE);
+
+CREATE POLICY "admins: manage exercises"
+  ON library.exercises FOR ALL
+  USING (
+    (SELECT role FROM profile.users WHERE id = auth.uid()) = 'admin'
+  );
+
+ALTER TABLE library.meals ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "everyone: read meals"
+  ON library.meals FOR SELECT
+  USING (TRUE);
+
+CREATE POLICY "admins: manage meals"
+  ON library.meals FOR ALL
+  USING (
+    (SELECT role FROM profile.users WHERE id = auth.uid()) = 'admin'
+  );
+
+
+-- ── tracker (users see only their own data) ────────────────
+ALTER TABLE tracker.workout_sessions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "users: own sessions"
+  ON tracker.workout_sessions FOR ALL
+  USING (user_id = auth.uid());
+
+ALTER TABLE tracker.daily_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "users: own daily logs"
+  ON tracker.daily_logs FOR ALL
+  USING (user_id = auth.uid());
+
+ALTER TABLE tracker.user_workout_schedule ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "users: own workout schedule"
+  ON tracker.user_workout_schedule FOR ALL
+  USING (user_id = auth.uid());
+
+ALTER TABLE tracker.user_meal_schedule ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "users: own meal schedule"
+  ON tracker.user_meal_schedule FOR ALL
+  USING (user_id = auth.uid());
+
+
+-- ── system.notifications (users see only theirs) ──────────
+ALTER TABLE system.notifications ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "users: own notifications"
+  ON system.notifications FOR SELECT
+  USING (user_id = auth.uid());
+
+CREATE POLICY "admins: manage notifications"
+  ON system.notifications FOR ALL
+  USING (
+    (SELECT role FROM profile.users WHERE id = auth.uid()) = 'admin'
+  );
+
+SELECT schema_name 
+FROM information_schema.schemata
+WHERE schema_name IN ('profile', 'library', 'plans', 'tracker', 'system');
+
+SELECT schema_name 
+FROM information_schema.schemata
+WHERE schema_name = 'accounts';
+
+SELECT table_schema, table_name
+FROM information_schema.tables
+WHERE table_schema IN ('profile', 'library', 'plans', 'tracker', 'system')
+ORDER BY table_schema, table_name;
+
+
+SELECT column_name, data_type, column_default
+FROM information_schema.columns
+WHERE table_schema = 'profile' AND table_name = 'users'
+ORDER BY ordinal_position;
+
+
+SELECT
+  tc.table_schema,
+  tc.table_name,
+  kcu.column_name,
+  ccu.table_schema AS foreign_schema,
+  ccu.table_name   AS foreign_table
+FROM information_schema.table_constraints AS tc
+JOIN information_schema.key_column_usage AS kcu
+  ON tc.constraint_name = kcu.constraint_name
+JOIN information_schema.constraint_column_usage AS ccu
+  ON ccu.constraint_name = tc.constraint_name
+WHERE tc.constraint_type = 'FOREIGN KEY'
+  AND ccu.table_name = 'users'
+ORDER BY tc.table_schema, tc.table_name;
+
+
+SELECT
+  tc.table_schema,
+  tc.table_name,
+  kcu.column_name,
+  ccu.table_schema AS foreign_schema,
+  ccu.table_name   AS foreign_table,
+  ccu.column_name  AS foreign_column
+FROM information_schema.table_constraints AS tc
+JOIN information_schema.key_column_usage AS kcu
+  ON tc.constraint_name = kcu.constraint_name
+JOIN information_schema.constraint_column_usage AS ccu
+  ON ccu.constraint_name = tc.constraint_name
+WHERE tc.constraint_type = 'FOREIGN KEY'
+  AND tc.table_schema IN ('profile', 'plans', 'tracker', 'system')
+ORDER BY tc.table_schema, tc.table_name;
+
+
+SELECT
+  ns.nspname   AS table_schema,
+  cls.relname  AS table_name,
+  att.attname  AS column_name,
+  nsp.nspname  AS foreign_schema,
+  rel.relname  AS foreign_table,
+  con.conname  AS constraint_name
+FROM pg_constraint con
+JOIN pg_class cls ON cls.oid = con.conrelid
+JOIN pg_namespace ns ON ns.oid = cls.relnamespace
+JOIN pg_attribute att ON att.attrelid = cls.oid AND att.attnum = ANY(con.conkey)
+JOIN pg_class rel ON rel.oid = con.confrelid
+JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+WHERE con.contype = 'f'
+  AND ns.nspname IN ('profile', 'plans', 'tracker', 'system')
+ORDER BY ns.nspname, cls.relname;
+
+SELECT schemaname, tablename, rowsecurity
+FROM pg_tables
+WHERE schemaname IN ('profile', 'library', 'plans', 'tracker', 'system')
+ORDER BY schemaname, tablename;
+
+
+-- Add missing nutrition columns to library.meal_nutrition
+ALTER TABLE library.meal_nutrition
+  ADD COLUMN IF NOT EXISTS saturated_fat_g     NUMERIC,
+  ADD COLUMN IF NOT EXISTS dietary_fibre_g     NUMERIC,
+  ADD COLUMN IF NOT EXISTS sodium_mg           NUMERIC,
+  ADD COLUMN IF NOT EXISTS calcium_mg          NUMERIC,
+  ADD COLUMN IF NOT EXISTS iron_mg             NUMERIC;
+
+
+ -- ============================================================
+-- EuApp v3 — Migration: Routines, Conditions, Meal Slots
+-- Run AFTER v1 (schema) and v2 (Supabase auth migration)
+-- ============================================================
+
+
+-- ============================================================
+-- SECTION A: WORKOUT PLANS — Add dates, level, scheduling,
+--            and introduce ROUTINES as a middle layer
+-- ============================================================
+
+-- A1. Add missing columns to plans.workout_plans
+ALTER TABLE plans.workout_plans
+  ADD COLUMN IF NOT EXISTS start_date   DATE,
+  ADD COLUMN IF NOT EXISTS end_date     DATE,
+  ADD COLUMN IF NOT EXISTS description  TEXT,
+  ADD CONSTRAINT workout_plans_dates_check
+    CHECK (end_date IS NULL OR end_date >= start_date);
+
+-- NOTE: difficulty_level already exists on workout_plans (beginner/intermediate/advanced)
+-- NOTE: title already exists on workout_plans
+
+
+-- A2. Create plans.routines
+--     A routine is a named group of exercises (e.g. "Push Day", "Pull Day", "Leg Day")
+CREATE TABLE IF NOT EXISTS plans.routines (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name         VARCHAR NOT NULL,                          -- e.g. "Push Day", "Leg Day"
+    description  TEXT,
+    created_by   UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    is_template  BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_routines_created_by ON plans.routines(created_by);
+CREATE INDEX IF NOT EXISTS idx_routines_template   ON plans.routines(is_template);
+
+
+-- A3. Create plans.routine_exercises
+--     Each row = one exercise inside a routine, with sets/reps/weight/rest
+--     This REPLACES plans.workout_plan_items for the exercise→routine link
+CREATE TABLE IF NOT EXISTS plans.routine_exercises (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    routine_id        UUID NOT NULL REFERENCES plans.routines(id) ON DELETE CASCADE,
+    exercise_id       UUID NOT NULL REFERENCES library.exercises(id) ON DELETE RESTRICT,
+    position          INT NOT NULL DEFAULT 0,          -- ordering within the routine
+    sets              INT CHECK (sets > 0),
+    reps              INT CHECK (reps > 0),            -- target reps per set
+    weight_kg         DECIMAL(6,2) CHECK (weight_kg >= 0),  -- suggested/starting weight
+    rest_time_seconds INT CHECK (rest_time_seconds >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_routine_exercises_routine  ON plans.routine_exercises(routine_id);
+CREATE INDEX IF NOT EXISTS idx_routine_exercises_exercise ON plans.routine_exercises(exercise_id);
+
+
+-- A4. Create plans.workout_plan_routines
+--     Links routines into a workout plan AND defines the schedule slot
+--
+--     Schedule supports TWO modes (set schedule_type on the parent plan):
+--       'nday'  — day_number is 1,2,3,… (n-day cycle, e.g. Day1/Day2/Day3)
+--       'weekly'— day_of_week is 0-6 (0=Sunday … 6=Saturday)
+--     Only one column is populated depending on the mode.
+
+CREATE TABLE IF NOT EXISTS plans.workout_plan_routines (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workout_plan_id UUID NOT NULL REFERENCES plans.workout_plans(id) ON DELETE CASCADE,
+    routine_id    UUID NOT NULL REFERENCES plans.routines(id) ON DELETE RESTRICT,
+
+    -- schedule slot (fill ONE depending on schedule_type)
+    day_number    INT CHECK (day_number >= 1),      -- for 'nday'  mode: 1,2,3,…
+    day_of_week   INT CHECK (day_of_week BETWEEN 0 AND 6), -- for 'weekly' mode: 0=Sun…6=Sat
+    is_rest_day   BOOLEAN NOT NULL DEFAULT FALSE,   -- mark a day as rest (no routine needed)
+
+    position      INT NOT NULL DEFAULT 0,           -- display order if multiple routines same day
+
+    CONSTRAINT one_schedule_type CHECK (
+        (day_number IS NOT NULL AND day_of_week IS NULL)
+        OR (day_number IS NULL AND day_of_week IS NOT NULL)
+        OR (is_rest_day = TRUE)   -- rest day needs neither
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_plan_routines_plan    ON plans.workout_plan_routines(workout_plan_id);
+CREATE INDEX IF NOT EXISTS idx_plan_routines_routine ON plans.workout_plan_routines(routine_id);
+
+
+-- A5. Add schedule_type to workout_plans so the app knows which mode to render
+ALTER TABLE plans.workout_plans
+  ADD COLUMN IF NOT EXISTS schedule_type VARCHAR DEFAULT 'nday'
+      CHECK (schedule_type IN ('nday', 'weekly'));
+
+
+-- A6. RLS for new tables (mirrors existing workout_plans policies)
+ALTER TABLE plans.routines ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "everyone: read template routines"
+  ON plans.routines FOR SELECT
+  USING (is_template = TRUE);
+
+CREATE POLICY "users: manage own routines"
+  ON plans.routines FOR ALL
+  USING (is_template = FALSE AND created_by = auth.uid());
+
+CREATE POLICY "admins: full access routines"
+  ON plans.routines FOR ALL
+  USING (
+    (SELECT role FROM profile.users WHERE id = auth.uid()) = 'admin'
+  );
+
+ALTER TABLE plans.routine_exercises ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "everyone: read routine exercises via template"
+  ON plans.routine_exercises FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM plans.routines r
+      WHERE r.id = routine_id AND r.is_template = TRUE
+    )
+  );
+
+CREATE POLICY "users: manage own routine exercises"
+  ON plans.routine_exercises FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM plans.routines r
+      WHERE r.id = routine_id AND r.created_by = auth.uid()
+    )
+  );
+
+CREATE POLICY "admins: full access routine exercises"
+  ON plans.routine_exercises FOR ALL
+  USING (
+    (SELECT role FROM profile.users WHERE id = auth.uid()) = 'admin'
+  );
+
+ALTER TABLE plans.workout_plan_routines ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "users: read plan routines for own plans"
+  ON plans.workout_plan_routines FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM plans.workout_plans wp
+      WHERE wp.id = workout_plan_id
+        AND (wp.is_template = TRUE OR wp.created_by = auth.uid())
+    )
+  );
+
+CREATE POLICY "users: manage plan routines for own plans"
+  ON plans.workout_plan_routines FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM plans.workout_plans wp
+      WHERE wp.id = workout_plan_id
+        AND wp.is_template = FALSE
+        AND wp.created_by = auth.uid()
+    )
+  );
+
+CREATE POLICY "admins: full access plan routines"
+  ON plans.workout_plan_routines FOR ALL
+  USING (
+    (SELECT role FROM profile.users WHERE id = auth.uid()) = 'admin'
+  );
+
+
+-- ============================================================
+-- SECTION B: PRE-DEFINED CONDITIONS & NUTRITION THRESHOLDS
+--            (sourced from the uploaded PDF)
+-- ============================================================
+
+-- B1. library.conditions — app-defined diseases (not user-entered)
+CREATE TABLE IF NOT EXISTS library.conditions (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code         VARCHAR(50) UNIQUE NOT NULL,  -- machine key, e.g. 'hypertension'
+    display_name VARCHAR NOT NULL,             -- e.g. 'Hypertension'
+    description  TEXT,
+    is_active    BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+-- Seed: pre-defined conditions from the PDF
+INSERT INTO library.conditions (code, display_name, description) VALUES
+  ('hypertension',        'Hypertension',                       'High blood pressure; sodium-restricted DASH-aligned diet recommended.'),
+  ('type2_diabetes',      'Type 2 Diabetes',                    'Manage carbohydrate servings, limit free sugars and sodium.'),
+  ('dyslipidemia_cvd',    'Dyslipidemia / Cardiovascular Risk', 'High LDL or elevated CVD risk; restrict saturated and trans fats.'),
+  ('ckd_non_dialysis',    'Chronic Kidney Disease (non-dialysis)', 'Protein and sodium restriction; potassium/phosphorus conditionally restricted.'),
+  ('celiac_disease',      'Celiac Disease',                     'Strict lifelong gluten-free diet; exclude wheat, barley, rye.'),
+  ('lactose_intolerance', 'Lactose Intolerance',                'Limit lactose per eating occasion; 12 g is a common tolerance threshold.'),
+  ('weight_loss',         'Weight Loss Goal',                   'Caloric deficit of 500–1000 kcal/day; maintain diet quality.')
+ON CONFLICT (code) DO NOTHING;
+
+
+-- B2. library.condition_nutrition_rules
+--     Machine-readable thresholds per condition (maps exactly to the JSON schema in the PDF)
+CREATE TABLE IF NOT EXISTS library.condition_nutrition_rules (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    condition_id UUID NOT NULL REFERENCES library.conditions(id) ON DELETE CASCADE,
+    metric       VARCHAR NOT NULL,        -- e.g. 'sodium_mg_per_day', 'saturated_fat_pct_energy'
+    operator     VARCHAR(5) NOT NULL      -- '<', '<=', '>', '>='
+                     CHECK (operator IN ('<', '<=', '>', '>=')),
+    value        DECIMAL(10,4) NOT NULL,  -- numeric threshold
+    priority     VARCHAR NOT NULL DEFAULT 'default'
+                     CHECK (priority IN ('default', 'strict_optional',
+                                         'default_no_diabetes', 'default_with_diabetes',
+                                         'default_with_diabetes_low', 'default_with_diabetes_high')),
+    scope        VARCHAR NOT NULL DEFAULT 'per_day'
+                     CHECK (scope IN ('per_day', 'per_serving', 'per_eating_occasion', 'pct_energy', 'per_kg_per_day')),
+    note         TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_condition_rules_condition ON library.condition_nutrition_rules(condition_id);
+
+-- Seed: thresholds from the PDF
+-- (using condition code to look up UUID so seeds are idempotent)
+INSERT INTO library.condition_nutrition_rules
+  (condition_id, metric, operator, value, priority, scope, note)
+SELECT c.id, r.metric, r.operator, r.value, r.priority, r.scope, r.note
+FROM library.conditions c
+JOIN (VALUES
+  -- Hypertension
+  ('hypertension', 'sodium_mg',              '<',  2000, 'default',          'per_day',            'WHO/NHLBI baseline'),
+  ('hypertension', 'sodium_mg',              '<=', 1500, 'strict_optional',  'per_day',            'DASH intensive target'),
+  -- Type 2 Diabetes
+  ('type2_diabetes', 'sodium_mg',            '<',  2300, 'default',          'per_day',            'ADA standard'),
+  ('type2_diabetes', 'free_sugars_pct',      '<',  10,   'default',          'pct_energy',         'WHO <10% energy'),
+  ('type2_diabetes', 'free_sugars_pct',      '<',  5,    'strict_optional',  'pct_energy',         'WHO tight control'),
+  ('type2_diabetes', 'carb_serving_g',       '<=', 15,   'default',          'per_serving',        'CDC 1 carb serving = 15g'),
+  -- Dyslipidemia / CVD
+  ('dyslipidemia_cvd', 'saturated_fat_pct',  '<',  6,    'default',          'pct_energy',         'AHA <6% energy for LDL reduction'),
+  ('dyslipidemia_cvd', 'trans_fat_pct',      '<',  1,    'default',          'pct_energy',         'WHO <1% energy'),
+  ('dyslipidemia_cvd', 'free_sugars_pct',    '<',  10,   'default',          'pct_energy',         'WHO baseline'),
+  -- CKD (non-dialysis)
+  ('ckd_non_dialysis', 'protein_g_per_kg',   '<=', 0.60, 'default_no_diabetes',          'per_kg_per_day', 'KDOQI 2020 stages 3-5 no diabetes'),
+  ('ckd_non_dialysis', 'protein_g_per_kg',   '>=', 0.60, 'default_with_diabetes_low',    'per_kg_per_day', 'KDOQI 2020 stages 3-5 with diabetes lower bound'),
+  ('ckd_non_dialysis', 'protein_g_per_kg',   '<=', 0.80, 'default_with_diabetes_high',   'per_kg_per_day', 'KDOQI 2020 stages 3-5 with diabetes upper bound'),
+  ('ckd_non_dialysis', 'sodium_mg',          '<',  2000, 'default_with_diabetes',         'per_day',        'KDIGO CKD+diabetes'),
+  ('ckd_non_dialysis', 'sodium_mg',          '<',  2300, 'default',                        'per_day',        'General CKD KDOQI'),
+  ('ckd_non_dialysis', 'potassium_mg',       '<',  200,  'default',                        'per_serving',    'NKF: high-potassium food flag (hyperkalemia plan only)'),
+  -- Celiac
+  ('celiac_disease', 'gluten_ppm',           '<',  20,   'default',          'per_serving',        'Codex/FDA gluten-free threshold'),
+  -- Lactose intolerance
+  ('lactose_intolerance', 'lactose_g',       '<=', 12,   'default',          'per_eating_occasion','NIDDK/EFSA commonly tolerated dose'),
+  -- Weight loss
+  ('weight_loss', 'energy_deficit_kcal',     '>=', 500,  'default',          'per_day',            'NIH/CDC 1-2 lb/week pace lower bound'),
+  ('weight_loss', 'energy_deficit_kcal',     '<=', 1000, 'default',          'per_day',            'NIH/CDC 1-2 lb/week pace upper bound')
+) AS r(code, metric, operator, value, priority, scope, note)
+ON c.code = r.code
+ON CONFLICT DO NOTHING;
+
+
+-- B3. library.condition_food_filters
+--     Hard ingredient/label exclusions per condition (e.g. gluten grains for celiac)
+CREATE TABLE IF NOT EXISTS library.condition_food_filters (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    condition_id UUID NOT NULL REFERENCES library.conditions(id) ON DELETE CASCADE,
+    filter_type  VARCHAR NOT NULL CHECK (filter_type IN ('exclude_ingredient', 'exclude_tag', 'require_label')),
+    token        VARCHAR NOT NULL,   -- e.g. 'wheat', 'barley', 'gluten_free'
+    note         TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_condition_filters_condition ON library.condition_food_filters(condition_id);
+
+-- Seed: celiac hard filters
+INSERT INTO library.condition_food_filters (condition_id, filter_type, token, note)
+SELECT c.id, f.filter_type, f.token, f.note
+FROM library.conditions c
+JOIN (VALUES
+  ('celiac_disease', 'exclude_ingredient', 'wheat',  'Codex/FDA gluten-free rule'),
+  ('celiac_disease', 'exclude_ingredient', 'barley', 'Codex/FDA gluten-free rule'),
+  ('celiac_disease', 'exclude_ingredient', 'rye',    'Codex/FDA gluten-free rule'),
+  ('celiac_disease', 'require_label',      'gluten_free', '< 20 ppm threshold label')
+) AS f(code, filter_type, token, note)
+ON c.code = f.code
+ON CONFLICT DO NOTHING;
+
+
+-- B4. RLS for condition tables (read-only for everyone; admin-managed)
+ALTER TABLE library.conditions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "everyone: read conditions"
+  ON library.conditions FOR SELECT USING (TRUE);
+
+CREATE POLICY "admins: manage conditions"
+  ON library.conditions FOR ALL
+  USING ((SELECT role FROM profile.users WHERE id = auth.uid()) = 'admin');
+
+ALTER TABLE library.condition_nutrition_rules ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "everyone: read condition rules"
+  ON library.condition_nutrition_rules FOR SELECT USING (TRUE);
+
+CREATE POLICY "admins: manage condition rules"
+  ON library.condition_nutrition_rules FOR ALL
+  USING ((SELECT role FROM profile.users WHERE id = auth.uid()) = 'admin');
+
+ALTER TABLE library.condition_food_filters ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "everyone: read condition filters"
+  ON library.condition_food_filters FOR SELECT USING (TRUE);
+
+CREATE POLICY "admins: manage condition filters"
+  ON library.condition_food_filters FOR ALL
+  USING ((SELECT role FROM profile.users WHERE id = auth.uid()) = 'admin');
+
+
+-- ============================================================
+-- SECTION C: MEAL PLANS — Add dates, targeted condition,
+--            and pre-selected meal slots
+-- ============================================================
+
+-- C1. Add missing columns to plans.meal_plans
+ALTER TABLE plans.meal_plans
+  ADD COLUMN IF NOT EXISTS start_date          DATE,
+  ADD COLUMN IF NOT EXISTS end_date            DATE,
+  ADD COLUMN IF NOT EXISTS description         TEXT,
+  ADD COLUMN IF NOT EXISTS target_condition_id UUID REFERENCES library.conditions(id) ON DELETE SET NULL,
+  ADD CONSTRAINT meal_plans_dates_check
+    CHECK (end_date IS NULL OR end_date >= start_date);
+
+-- NOTE: goal_type already exists (e.g. 'weight_loss', 'muscle_gain', 'maintenance')
+-- NOTE: target_condition_id links to ONE pre-defined condition
+--       (matches the user's chronic condition in profile.user_chronic_conditions)
+-- NOTE: is_template already exists
+
+CREATE INDEX IF NOT EXISTS idx_meal_plans_condition ON plans.meal_plans(target_condition_id);
+
+
+-- C2. plans.meal_plan_slot_meals
+--     Pre-selected pool of meals for each slot type in a plan.
+--     When the user creates a meal plan, they pick a set of approved meals
+--     per slot (breakfast pool, lunch pool, etc.).  At scheduling time the user
+--     picks from this pool (or searches for something else).
+CREATE TABLE IF NOT EXISTS plans.meal_plan_slot_meals (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    meal_plan_id UUID NOT NULL REFERENCES plans.meal_plans(id) ON DELETE CASCADE,
+    meal_id      UUID NOT NULL REFERENCES library.meals(id) ON DELETE RESTRICT,
+    meal_type    VARCHAR NOT NULL
+                     CHECK (meal_type IN ('breakfast', 'lunch', 'dinner', 'snack')),
+    note         TEXT,   -- optional user note (e.g. "high protein option")
+    UNIQUE (meal_plan_id, meal_id, meal_type)  -- no duplicates per slot
+);
+
+CREATE INDEX IF NOT EXISTS idx_slot_meals_plan ON plans.meal_plan_slot_meals(meal_plan_id);
+CREATE INDEX IF NOT EXISTS idx_slot_meals_meal ON plans.meal_plan_slot_meals(meal_id);
+CREATE INDEX IF NOT EXISTS idx_slot_meals_type ON plans.meal_plan_slot_meals(meal_type);
+
+
+-- C3. RLS for meal_plan_slot_meals
+ALTER TABLE plans.meal_plan_slot_meals ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "users: read slot meals for own or template plans"
+  ON plans.meal_plan_slot_meals FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM plans.meal_plans mp
+      WHERE mp.id = meal_plan_id
+        AND (mp.is_template = TRUE OR mp.created_by = auth.uid())
+    )
+  );
+
+CREATE POLICY "users: manage slot meals for own plans"
+  ON plans.meal_plan_slot_meals FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM plans.meal_plans mp
+      WHERE mp.id = meal_plan_id
+        AND mp.is_template = FALSE
+        AND mp.created_by = auth.uid()
+    )
+  );
+
+CREATE POLICY "admins: full access slot meals"
+  ON plans.meal_plan_slot_meals FOR ALL
+  USING (
+    (SELECT role FROM profile.users WHERE id = auth.uid()) = 'admin'
+  );
+
+
+-- ============================================================
+-- SECTION D: LINK USER CHRONIC CONDITIONS TO CONDITIONS TABLE
+--            profile.user_chronic_conditions already stores
+--            condition_name as VARCHAR — we add an optional FK
+--            to library.conditions for structured conditions.
+-- ============================================================
+
+ALTER TABLE profile.user_chronic_conditions
+  ADD COLUMN IF NOT EXISTS condition_id UUID REFERENCES library.conditions(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_user_chronic_condition_id
+  ON profile.user_chronic_conditions(condition_id);
+
+COMMENT ON COLUMN profile.user_chronic_conditions.condition_id IS
+  'FK to library.conditions for pre-defined app conditions. '
+  'condition_name is kept for free-text / unrecognized conditions.';
+
+
+-- ============================================================
+-- SECTION E: TRACKER — Update workout_session_items to track
+--            actual weight used (already exists) and ensure
+--            reps_completed exists (already exists).
+--            No schema changes needed here.
+-- ============================================================
+
+-- Verify tracker.workout_session_items has what we need:
+-- reps_completed INT   ✓  (already in v1)
+-- weight_used DECIMAL  ✓  (already in v1)
+-- No changes required.
+
+
+-- ============================================================
+-- VERIFICATION QUERIES — Run these to confirm migration
+-- ============================================================
+
+-- 1. New workout plan columns
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = 'plans' AND table_name = 'workout_plans'
+  AND column_name IN ('start_date', 'end_date', 'schedule_type')
+ORDER BY column_name;
+
+-- 2. New tables
+SELECT table_schema, table_name
+FROM information_schema.tables
+WHERE table_schema IN ('plans', 'library')
+  AND table_name IN ('routines', 'routine_exercises', 'workout_plan_routines',
+                     'conditions', 'condition_nutrition_rules', 'condition_food_filters',
+                     'meal_plan_slot_meals')
+ORDER BY table_schema, table_name;
+
+-- 3. Seeded conditions
+SELECT code, display_name FROM library.conditions ORDER BY code;
+
+-- 4. Seeded rules count per condition
+SELECT c.display_name, COUNT(r.id) AS rule_count
+FROM library.conditions c
+LEFT JOIN library.condition_nutrition_rules r ON r.condition_id = c.id
+GROUP BY c.display_name ORDER BY c.display_name;
+
+-- 5. Meal plan new columns
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = 'plans' AND table_name = 'meal_plans'
+  AND column_name IN ('start_date', 'end_date', 'target_condition_id', 'description')
+ORDER BY column_name;
+
+-- ============================================================
+-- ✅ DONE — Migration v3 applied successfully
+-- ============================================================ 
