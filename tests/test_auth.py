@@ -27,7 +27,7 @@ def test_tc_u01_reject_duplicate_username(mock_repo, mock_supabase):
     user_create = UserCreate(**USER_DATA)
     mock_db = MagicMock()
 
-    # ✅ Proper Supabase mock
+    
     mock_supabase.auth.sign_up.return_value = MagicMock(
         session=MagicMock(access_token="mock_token", refresh_token="mock_refresh"),
         user=MagicMock(
@@ -37,7 +37,7 @@ def test_tc_u01_reject_duplicate_username(mock_repo, mock_supabase):
         )
     )
 
-    # ✅ Trigger DB failure
+    
     mock_repo.create_profile_user.side_effect = IntegrityError(
         statement="",
         params={},
@@ -58,13 +58,13 @@ def test_tc_u02_reject_duplicate_email(mock_repo, mock_supabase):
     user_create = UserCreate(**USER_DATA)
     mock_db = MagicMock()
 
-    # ✅ Supabase fails BEFORE DB
+    
     mock_supabase.auth.sign_up.side_effect = Exception("User already registered")
 
     with pytest.raises(HTTPException) as exc:
         service.register_user(mock_db, user_create)
 
-    # ✅ Ensure DB never called
+    
     mock_repo.create_profile_user.assert_not_called()
 
     assert exc.value.status_code == 400
