@@ -67,3 +67,46 @@ async def require_admin(
         )
 
     return current_user
+
+# for checking if the user is admin
+# FastAPI sees this and runs the full chain before your function even executes:
+# 1. extract bearer token
+# 2. validate JWT
+# 3. query profile.users
+# 4. check role
+# 5. only then call your endpoint handler
+
+"""
+HTTP Request arrives with:
+  Authorization: Bearer eyJhbGci...
+
+        │
+        ▼
+┌─────────────────────────────────────┐
+│  HTTPBearer()  (in core/auth.py)    │
+│  Extracts the raw token string      │
+│  from the Authorization header      │
+└─────────────────────────────────────┘
+        │  credentials.credentials = "eyJhbGci..."
+        ▼
+┌─────────────────────────────────────┐
+│  get_current_user()                 │
+│  Calls supabase.auth.get_user(token)│
+│  Returns the Supabase user object   │
+└─────────────────────────────────────┘
+        │  current_user = { id, email, ... }
+        ▼
+┌─────────────────────────────────────┐
+│  require_admin()                    │
+│  Queries profile.users WHERE        │
+│  id = current_user.id               │
+│  Checks role == 'admin'             │
+│  → 403 if not admin                 │
+│  → returns current_user if admin    │
+└─────────────────────────────────────┘
+        │  _admin = current_user  (admin verified)
+        ▼
+┌─────────────────────────────────────┐
+│  create_exercise()  runs            │
+└─────────────────────────────────────┘
+"""
