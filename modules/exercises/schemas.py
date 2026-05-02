@@ -1,32 +1,30 @@
 import uuid
 from typing import Optional, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
+from db.database import ORMBaseModel
 
 # ──────────────────────────────────────────
 # Nested / shared
 # ──────────────────────────────────────────
 
-class SecondaryMuscleOut(BaseModel):
+class SecondaryMuscleOut(ORMBaseModel):
     id: uuid.UUID
     muscle_name: str
-
-    class Config:
-        from_attributes = True
 
 
 # ──────────────────────────────────────────
 # Response schemas
 # ──────────────────────────────────────────
 
-class ExerciseResponse(BaseModel):
+class ExerciseResponse(ORMBaseModel):
     """Full exercise record returned by the API."""
     id: uuid.UUID
     source_id: Optional[str] = None
     title: str
-    exercise_type: Optional[str] = None       # 'weight_reps' | 'reps_only' | 'duration'
-    muscle_group: Optional[str] = None         # primary muscle group
-    equipment_category: Optional[str] = None   # 'barbell' | 'dumbbell' | 'machine' | 'none'
+    exercise_type: Optional[str] = None
+    muscle_group: Optional[str] = None
+    equipment_category: Optional[str] = None
     url: Optional[str] = None
     media_type: Optional[str] = None
     thumbnail_url: Optional[str] = None
@@ -37,9 +35,6 @@ class ExerciseResponse(BaseModel):
     is_archived: bool = False
     hundred_percent_bodyweight: bool = False
     secondary_muscles: List[SecondaryMuscleOut] = []
-
-    class Config:
-        from_attributes = True
 
 
 class PaginatedExercises(BaseModel):

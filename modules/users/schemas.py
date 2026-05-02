@@ -2,6 +2,8 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional
 import uuid
 
+from db.database import ORMBaseModel
+
 
 # ──────────────────────────────────────────
 # Request Schemas
@@ -63,20 +65,17 @@ class Token(BaseModel):
     user: UserInfo
 
 
-class UserListItem(BaseModel):
+class UserListItem(ORMBaseModel):
     """A single user row returned by the admin GET /auth/users endpoint."""
-    id: uuid.UUID          # UUID object from SQLAlchemy — serializes to string in JSON
+    id: uuid.UUID
     full_name: Optional[str] = None
     username: Optional[str] = None
     email: Optional[str] = None
     role: str
     is_active: bool
 
-    class Config:
-        from_attributes = True
 
-
-class HealthProfileResponse(BaseModel):
+class HealthProfileResponse(ORMBaseModel):
     """Response schema for health profile endpoints."""
     user_id: uuid.UUID
     age: int
@@ -92,6 +91,3 @@ class HealthProfileResponse(BaseModel):
     injury_details: Optional[str] = None
     recovery_stage: Optional[str] = None
     medical_diet_notes: Optional[str] = None
-
-    class Config:
-        from_attributes = True

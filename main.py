@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from modules.users.router import router as auth_router
 from modules.exercises.router import router as exercises_router
+from modules.workouts.router import router as workouts_router
 from fastapi.middleware.cors import CORSMiddleware
 
 # Tables are managed by Supabase migrations — we do NOT call create_all here.
@@ -24,6 +25,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(exercises_router)
+app.include_router(workouts_router)
 
 @app.get("/")
 def root():
