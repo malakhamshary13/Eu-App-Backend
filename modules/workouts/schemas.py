@@ -7,11 +7,28 @@ from db.database import ORMBaseModel
 
 
 # ──────────────────────────────────────────
+# Exercise detail embedded in a routine
+# ──────────────────────────────────────────
+
+class ExerciseDetailInRoutine(ORMBaseModel):
+    """Compact exercise card embedded inside a routine's exercise list."""
+    id: uuid.UUID
+    title: str
+    exercise_type: Optional[str] = None
+    muscle_group: Optional[str] = None
+    equipment_category: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    url: Optional[str] = None
+    media_type: Optional[str] = None
+    hundred_percent_bodyweight: bool = False
+
+
+# ──────────────────────────────────────────
 # Routine Exercise schemas
 # ──────────────────────────────────────────
 
 class RoutineExerciseCreate(BaseModel):
-    """One exercise entry to add inside a routine."""
+    """Add a single exercise to a routine."""
     exercise_id: uuid.UUID
     position: int = 0
     sets: Optional[int] = None
@@ -28,61 +45,40 @@ class RoutineExerciseResponse(ORMBaseModel):
     reps: Optional[int] = None
     weight_kg: Optional[float] = None
     rest_time_seconds: Optional[int] = None
+    exercise: Optional[ExerciseDetailInRoutine] = None   # full exercise details
 
 
 # ──────────────────────────────────────────
-# Routine schemas
+# Workout Plan Routine (the routine itself)
 # ──────────────────────────────────────────
 
-class RoutineCreate(BaseModel):
-    """Create a named group of exercises."""
+class CreateRoutineInPlan(BaseModel):
+    """
+    POST /workouts/plans/{plan_id}/routines
+    Creates a new routine slot directly on the plan.
+
+    For 'nday' plans   → set day_number  (1, 2, 3 …)
+    For 'weekly' plans → set day_of_week (0=Sun … 6=Sat)
+    Set is_rest_day=True to mark a rest day (name is ignored).
+    """
     name: str
     description: Optional[str] = None
-    exercises: List[RoutineExerciseCreate] = []
+    day_number: Optional[int] = None
+    day_of_week: Optional[int] = None
+    position: int = 0
+    is_rest_day: bool = False
 
 
-class RoutineUpdate(BaseModel):
-    """Partial update of a routine."""
+class WorkoutPlanRoutineResponse(ORMBaseModel):
+    """A routine slot — returned nested inside a plan or as a standalone detail."""
+    id: uuid.UUID
     name: Optional[str] = None
     description: Optional[str] = None
-    exercises: Optional[List[RoutineExerciseCreate]] = None  # None = don't touch
-
-
-class RoutineResponse(ORMBaseModel):
-    id: uuid.UUID
-    name: str
-    description: Optional[str] = None
-    is_template: bool = False
+    day_number: Optional[int] = None
+    day_of_week: Optional[int] = None
+    is_rest_day: bool = False
+    position: int = 0
     exercises: List[RoutineExerciseResponse] = []
-
-
-# ──────────────────────────────────────────
-# Workout Plan Routine slot schemas
-# ──────────────────────────────────────────
-
-class PlanRoutineSlotCreate(BaseModel):
-    """
-    One scheduled slot in a plan.
-    For 'nday' plans  → set day_number (1, 2, 3 …)
-    For 'weekly' plans → set day_of_week (0=Sun … 6=Sat)
-    Set is_rest_day=True to mark a rest day (no routine needed).
-    """
-    routine: Optional[RoutineCreate] = None      # inline routine creation
-    routine_id: Optional[uuid.UUID] = None       # OR link an existing routine
-    day_number: Optional[int] = None
-    day_of_week: Optional[int] = None
-    is_rest_day: bool = False
-    position: int = 0
-
-
-class PlanRoutineSlotResponse(ORMBaseModel):
-    id: uuid.UUID
-    routine_id: Optional[uuid.UUID] = None
-    day_number: Optional[int] = None
-    day_of_week: Optional[int] = None
-    is_rest_day: bool = False
-    position: int = 0
-    routine: Optional[RoutineResponse] = None
 
 
 # ──────────────────────────────────────────
@@ -90,14 +86,13 @@ class PlanRoutineSlotResponse(ORMBaseModel):
 # ──────────────────────────────────────────
 
 class WorkoutPlanCreate(BaseModel):
-    """Payload for POST /workouts/plans."""
+    """POST /workouts/plans — plan metadata only, no inline slots."""
     title: str
     difficulty_level: Optional[str] = None    # 'beginner' | 'intermediate' | 'advanced'
     schedule_type: str = "nday"               # 'nday' | 'weekly'
     description: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    slots: List[PlanRoutineSlotCreate] = []   # scheduled routine slots
 
 
 class WorkoutPlanUpdate(BaseModel):
@@ -111,7 +106,7 @@ class WorkoutPlanUpdate(BaseModel):
 
 
 class WorkoutPlanResponse(ORMBaseModel):
-    """Full workout plan with nested routines and exercises."""
+    """Full workout plan with nested routines and their exercises."""
     id: uuid.UUID
     title: str
     difficulty_level: Optional[str] = None
@@ -121,7 +116,7 @@ class WorkoutPlanResponse(ORMBaseModel):
     end_date: Optional[date] = None
     is_template: bool = False
     created_by: Optional[uuid.UUID] = None
-    plan_routines: List[PlanRoutineSlotResponse] = []
+    plan_routines: List[WorkoutPlanRoutineResponse] = []
 
 
 class WorkoutPlanListItem(ORMBaseModel):
@@ -136,5 +131,5 @@ class WorkoutPlanListItem(ORMBaseModel):
     is_template: bool = False
 
 
-# Re-export for backward compat with the existing router stub
+# Alias kept for any existing references
 WorkoutResponse = WorkoutPlanResponse

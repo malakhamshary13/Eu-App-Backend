@@ -9,7 +9,8 @@ from db.database import get_db
 from modules.workouts.schemas import (
     WorkoutPlanCreate, WorkoutPlanUpdate,
     WorkoutPlanResponse, WorkoutPlanListItem,
-    PlanRoutineSlotCreate, PlanRoutineSlotResponse,
+    CreateRoutineInPlan, WorkoutPlanRoutineResponse,
+    RoutineExerciseCreate, RoutineExerciseResponse,
 )
 from modules.workouts.service import WorkoutService
 
@@ -30,10 +31,7 @@ def list_my_plans(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """
-    Returns all personal workout plans owned by the authenticated user.
-    Templates are excluded — those are system-level plans.
-    """
+    """Returns all personal workout plans owned by the authenticated user."""
     user_id = uuid.UUID(str(current_user.id))
     return service.get_my_plans(db, user_id)
 
@@ -50,16 +48,12 @@ def create_plan(
     db: Session = Depends(get_db),
 ):
     """
-    Create a new personal workout plan.
+    Create a new personal workout plan (metadata only).
+    Use `POST /workouts/plans/{plan_id}/routines` to add routines afterwards.
 
-    You can define routine slots inline in `slots[]`. Each slot can:
-    - Provide a full `routine` object to create a new routine
-    - Reference an existing routine via `routine_id`
-    - Be a rest day with `is_rest_day: true`
-
-    **Schedule modes:**
-    - `schedule_type: "nday"` → slots use `day_number` (1, 2, 3 …)
-    - `schedule_type: "weekly"` → slots use `day_of_week` (0=Sun … 6=Sat)
+    **schedule_type:**
+    - `"nday"` → routines use `day_number` (1, 2, 3 …)
+    - `"weekly"` → routines use `day_of_week` (0=Sun … 6=Sat)
     """
     user_id = uuid.UUID(str(current_user.id))
     return service.create_plan(db, user_id, data)
@@ -68,7 +62,7 @@ def create_plan(
 @router.get(
     "/plans/{plan_id}",
     response_model=WorkoutPlanResponse,
-    summary="Get a workout plan (owner only)",
+    summary="Get a workout plan with all routines and exercises",
 )
 def get_plan(
     plan_id: uuid.UUID,
@@ -76,7 +70,7 @@ def get_plan(
     db: Session = Depends(get_db),
 ):
     """
-    Returns the full workout plan including all routine slots and exercises.
+    Returns the full workout plan including all routines and their exercises.
     Raises **403** if the authenticated user does not own this plan.
     """
     user_id = uuid.UUID(str(current_user.id))
@@ -94,11 +88,7 @@ def update_plan(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """
-    Partially update plan metadata (title, dates, difficulty, description, etc.).
-    Only fields you include in the body will be changed.
-    Raises **403** if the authenticated user does not own this plan.
-    """
+    """Partially update plan metadata. Only sent fields are changed."""
     user_id = uuid.UUID(str(current_user.id))
     return service.update_plan(db, plan_id, user_id, data)
 
@@ -112,52 +102,102 @@ def delete_plan(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """
-    Permanently delete a workout plan and all its routine slots.
-    Raises **403** if the authenticated user does not own this plan.
-    """
+    """Permanently delete a plan and all its routines/exercises."""
     user_id = uuid.UUID(str(current_user.id))
     return service.delete_plan(db, plan_id, user_id)
 
 
 # ──────────────────────────────────────────
-# Routine slot management (within a plan)
+# Routine management (within a plan)
 # ──────────────────────────────────────────
 
 @router.post(
-    "/plans/{plan_id}/slots",
-    response_model=PlanRoutineSlotResponse,
+    "/plans/{plan_id}/routines",
+    response_model=WorkoutPlanRoutineResponse,
     status_code=201,
-    summary="Add a routine slot to a plan (owner only)",
+    summary="Add a routine to a plan (owner only)",
 )
-def add_routine_slot(
+def create_routine_for_plan(
     plan_id: uuid.UUID,
-    slot: PlanRoutineSlotCreate,
+    data: CreateRoutineInPlan,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Add a new routine slot to an existing plan.
-    Can create the routine inline or reference an existing `routine_id`.
-    Raises **403** if the authenticated user does not own this plan.
+    Create a new routine and attach it to the plan as a scheduled slot.
+
+    **Body fields:**
+    - `name` — routine name (e.g. "Push Day", "Leg Day")
+    - `description` — optional
+    - `day_number` — for `nday` plans (1, 2, 3 …)
+    - `day_of_week` — for `weekly` plans (0=Sun … 6=Sat)
+    - `position` — display order within the same day (default 0)
+    - `is_rest_day` — mark as rest day (name ignored)
+
+    Raises **403** if you don't own the plan.
     """
     user_id = uuid.UUID(str(current_user.id))
-    return service.add_routine_slot(db, plan_id, user_id, slot)
+    return service.create_routine_for_plan(db, plan_id, user_id, data)
+
+
+@router.get(
+    "/routines/{routine_id}",
+    response_model=WorkoutPlanRoutineResponse,
+    summary="Get a routine with its exercises",
+)
+def get_routine(
+    routine_id: uuid.UUID,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns a single routine with all its exercises and full exercise details.
+    Raises **403** if you don't own the parent plan.
+    """
+    user_id = uuid.UUID(str(current_user.id))
+    return service.get_routine(db, routine_id, user_id)
 
 
 @router.delete(
-    "/plans/{plan_id}/slots/{slot_id}",
-    summary="Remove a routine slot from a plan (owner only)",
+    "/routines/{routine_id}",
+    summary="Delete a routine and its exercises (owner only)",
 )
-def remove_routine_slot(
-    plan_id: uuid.UUID,
-    slot_id: uuid.UUID,
+def delete_routine(
+    routine_id: uuid.UUID,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a routine slot and all its exercises."""
+    user_id = uuid.UUID(str(current_user.id))
+    return service.delete_routine(db, routine_id, user_id)
+
+
+# ──────────────────────────────────────────
+# Exercise management (within a routine)
+# ──────────────────────────────────────────
+
+@router.post(
+    "/routines/{routine_id}/exercises",
+    response_model=RoutineExerciseResponse,
+    status_code=201,
+    summary="Add an exercise to a routine (owner only)",
+)
+def add_exercise_to_routine(
+    routine_id: uuid.UUID,
+    data: RoutineExerciseCreate,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Remove a specific routine slot from a plan.
-    Raises **403** if the authenticated user does not own this plan.
+    Append a single exercise to an existing routine.
+
+    **Body fields:**
+    - `exercise_id` — UUID from `library.exercises`
+    - `position` — ordering within the routine (default 0)
+    - `sets`, `reps`, `weight_kg`, `rest_time_seconds` — all optional
+
+    Returns the created entry with full exercise details embedded.
+    Raises **403** if you don't own the routine's parent plan.
     """
     user_id = uuid.UUID(str(current_user.id))
-    return service.remove_routine_slot(db, plan_id, slot_id, user_id)
+    return service.add_exercise_to_routine(db, routine_id, user_id, data)

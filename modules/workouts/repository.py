@@ -1,13 +1,13 @@
 import uuid
-from typing import List, Optional
+from typing import List
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from modules.workouts.models import WorkoutPlan, Routine, RoutineExercise, WorkoutPlanRoutine
+from modules.workouts.models import WorkoutPlan, WorkoutPlanRoutine, RoutineExercise
 from modules.workouts.schemas import (
     WorkoutPlanCreate, WorkoutPlanUpdate,
-    PlanRoutineSlotCreate, RoutineCreate,
+    CreateRoutineInPlan, RoutineExerciseCreate,
 )
 
 
@@ -15,11 +15,10 @@ class WorkoutRepository:
     """All DB operations for the workouts module."""
 
     # ──────────────────────────────────────────
-    # Ownership guard
+    # Guards
     # ──────────────────────────────────────────
 
     def _require_owner(self, plan: WorkoutPlan, user_id: uuid.UUID) -> None:
-        """Raise 403 if the requesting user is not the plan owner."""
         if plan.created_by != user_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -34,6 +33,15 @@ class WorkoutRepository:
                 detail=f"Workout plan {plan_id} not found.",
             )
         return plan
+
+    def _get_routine_or_404(self, db: Session, routine_id: uuid.UUID) -> WorkoutPlanRoutine:
+        routine = db.query(WorkoutPlanRoutine).filter(WorkoutPlanRoutine.id == routine_id).first()
+        if not routine:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Routine {routine_id} not found.",
+            )
+        return routine
 
     # ──────────────────────────────────────────
     # Read
@@ -59,76 +67,28 @@ class WorkoutRepository:
         self._require_owner(plan, user_id)
         return plan
 
-    # ──────────────────────────────────────────
-    # Create
-    # ──────────────────────────────────────────
-
-    def _create_routine(
-        self, db: Session, data: RoutineCreate, user_id: uuid.UUID
-    ) -> Routine:
-        """Insert a routine and its exercises. Returns the ORM object."""
-        routine = Routine(
-            name=data.name,
-            description=data.description,
-            created_by=user_id,
-            is_template=False,
-        )
-        db.add(routine)
-        db.flush()  # get routine.id
-
-        for ex in data.exercises:
-            db.add(RoutineExercise(
-                routine_id=routine.id,
-                exercise_id=ex.exercise_id,
-                position=ex.position,
-                sets=ex.sets,
-                reps=ex.reps,
-                weight_kg=ex.weight_kg,
-                rest_time_seconds=ex.rest_time_seconds,
-            ))
+    def get_routine_by_id(
+        self, db: Session, routine_id: uuid.UUID, user_id: uuid.UUID
+    ) -> WorkoutPlanRoutine:
+        """
+        Return a routine (workout_plan_routine) with its exercises.
+        Ownership is checked via the parent plan.
+        """
+        routine = self._get_routine_or_404(db, routine_id)
+        # Verify the parent plan belongs to this user (or is a template)
+        plan = self._get_plan_or_404(db, routine.workout_plan_id)
+        if not plan.is_template:
+            self._require_owner(plan, user_id)
         return routine
 
-    def _attach_slot(
-        self,
-        db: Session,
-        plan_id: uuid.UUID,
-        slot: PlanRoutineSlotCreate,
-        user_id: uuid.UUID,
-    ) -> WorkoutPlanRoutine:
-        """Create a routine (if inline) and attach it as a slot to the plan."""
-        routine_id = None
-
-        if slot.is_rest_day:
-            # Rest day — no routine needed
-            pass
-        elif slot.routine:
-            # Inline routine creation
-            routine = self._create_routine(db, slot.routine, user_id)
-            routine_id = routine.id
-        elif slot.routine_id:
-            # Reference to an existing routine
-            routine_id = slot.routine_id
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Each slot must have a routine, routine_id, or is_rest_day=true.",
-            )
-
-        plan_routine = WorkoutPlanRoutine(
-            workout_plan_id=plan_id,
-            routine_id=routine_id,
-            day_number=slot.day_number,
-            day_of_week=slot.day_of_week,
-            is_rest_day=slot.is_rest_day,
-            position=slot.position,
-        )
-        db.add(plan_routine)
-        return plan_routine
+    # ──────────────────────────────────────────
+    # Create — Plan
+    # ──────────────────────────────────────────
 
     def create_plan(
         self, db: Session, user_id: uuid.UUID, data: WorkoutPlanCreate
     ) -> WorkoutPlan:
-        """Create a workout plan with all its routine slots."""
+        """Create an empty workout plan (no routines yet)."""
         plan = WorkoutPlan(
             title=data.title,
             difficulty_level=data.difficulty_level,
@@ -141,80 +101,81 @@ class WorkoutRepository:
             creator_role='user',
         )
         db.add(plan)
-        db.flush()  # get plan.id
-
-        for slot in data.slots:
-            self._attach_slot(db, plan.id, slot, user_id)
-
         db.commit()
         db.refresh(plan)
         return plan
+
+    # ──────────────────────────────────────────
+    # Create — Routine
+    # ──────────────────────────────────────────
+
+    def create_routine_for_plan(
+        self, db: Session, plan_id: uuid.UUID, user_id: uuid.UUID,
+        data: CreateRoutineInPlan,
+    ) -> WorkoutPlanRoutine:
+        """
+        Create a new routine row directly on the plan (owner only).
+        name/description live on workout_plan_routines — no separate table.
+        """
+        self.get_plan_by_id(db, plan_id, user_id)  # ownership check
+
+        routine = WorkoutPlanRoutine(
+            workout_plan_id=plan_id,
+            name=data.name if not data.is_rest_day else None,
+            description=data.description if not data.is_rest_day else None,
+            day_number=data.day_number,
+            day_of_week=data.day_of_week,
+            is_rest_day=data.is_rest_day,
+            position=data.position,
+        )
+        db.add(routine)
+        db.commit()
+        db.refresh(routine)
+        return routine
+
+    # ──────────────────────────────────────────
+    # Create — Routine Exercise
+    # ──────────────────────────────────────────
+
+    def add_exercise_to_routine(
+        self, db: Session, routine_id: uuid.UUID, user_id: uuid.UUID,
+        data: RoutineExerciseCreate,
+    ) -> RoutineExercise:
+        """
+        Add a single exercise to an existing routine (owner only).
+        Returns the new entry with full exercise details loaded.
+        """
+        routine = self.get_routine_by_id(db, routine_id, user_id)  # ownership check
+
+        entry = RoutineExercise(
+            workout_plan_routine_id=routine.id,
+            exercise_id=data.exercise_id,
+            position=data.position,
+            sets=data.sets,
+            reps=data.reps,
+            weight_kg=data.weight_kg,
+            rest_time_seconds=data.rest_time_seconds,
+        )
+        db.add(entry)
+        db.commit()
+        db.refresh(entry)
+        return entry
 
     # ──────────────────────────────────────────
     # Update
     # ──────────────────────────────────────────
 
     def update_plan(
-        self,
-        db: Session,
-        plan_id: uuid.UUID,
-        user_id: uuid.UUID,
+        self, db: Session, plan_id: uuid.UUID, user_id: uuid.UUID,
         data: WorkoutPlanUpdate,
     ) -> WorkoutPlan:
-        """Partially update plan metadata. Raises 403 if not owner."""
+        """Partially update plan metadata (owner only)."""
         plan = self.get_plan_by_id(db, plan_id, user_id)
-
         for field, value in data.model_dump(exclude_none=True).items():
             setattr(plan, field, value)
-
         db.commit()
         db.refresh(plan)
         return plan
-
-    # ──────────────────────────────────────────
-    # Routine slot management
-    # ──────────────────────────────────────────
-
-    def add_routine_slot(
-        self,
-        db: Session,
-        plan_id: uuid.UUID,
-        user_id: uuid.UUID,
-        slot: PlanRoutineSlotCreate,
-    ) -> WorkoutPlanRoutine:
-        """Add a new routine slot to an existing plan (owner only)."""
-        plan = self.get_plan_by_id(db, plan_id, user_id)   # ownership check inside
-        pr = self._attach_slot(db, plan.id, slot, user_id)
-        db.commit()
-        db.refresh(pr)
-        return pr
-
-    def remove_routine_slot(
-        self,
-        db: Session,
-        plan_id: uuid.UUID,
-        slot_id: uuid.UUID,
-        user_id: uuid.UUID,
-    ) -> dict:
-        """Remove a routine slot from a plan (owner only)."""
-        self.get_plan_by_id(db, plan_id, user_id)  # ownership check
-
-        slot = (
-            db.query(WorkoutPlanRoutine)
-            .filter(
-                WorkoutPlanRoutine.id == slot_id,
-                WorkoutPlanRoutine.workout_plan_id == plan_id,
-            )
-            .first()
-        )
-        if not slot:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Routine slot not found in this plan.",
-            )
-        db.delete(slot)
-        db.commit()
-        return {"message": "Routine slot removed."}
 
     # ──────────────────────────────────────────
     # Delete
@@ -223,8 +184,18 @@ class WorkoutRepository:
     def delete_plan(
         self, db: Session, plan_id: uuid.UUID, user_id: uuid.UUID
     ) -> dict:
-        """Delete a workout plan and all its slots (owner only)."""
+        """Delete a workout plan and all its routines/exercises (owner only)."""
         plan = self.get_plan_by_id(db, plan_id, user_id)
         db.delete(plan)
         db.commit()
         return {"message": f"Workout plan '{plan.title}' deleted."}
+
+    def delete_routine(
+        self, db: Session, routine_id: uuid.UUID, user_id: uuid.UUID
+    ) -> dict:
+        """Delete a routine slot and all its exercises (owner only)."""
+        routine = self.get_routine_by_id(db, routine_id, user_id)
+        name = routine.name or "Rest day"
+        db.delete(routine)
+        db.commit()
+        return {"message": f"Routine '{name}' deleted."}

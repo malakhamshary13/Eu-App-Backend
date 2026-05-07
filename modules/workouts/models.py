@@ -9,8 +9,7 @@ from db.database import Base
 class WorkoutPlan(Base):
     """
     Maps to plans.workout_plans.
-    A workout plan is owned by one user (created_by → auth.users.id).
-    Ownership is enforced at the application layer.
+    Owned by one user (created_by → auth.users.id).
     """
     __tablename__ = "workout_plans"
     __table_args__ = {'schema': 'plans'}
@@ -26,71 +25,20 @@ class WorkoutPlan(Base):
     created_by       = Column(UUID(as_uuid=True), nullable=True)   # FK to auth.users.id
     creator_role     = Column(String, nullable=True, default='user')  # 'admin' | 'user'
 
-    # Relationship: one plan → many scheduled routine slots
     plan_routines = relationship(
         "WorkoutPlanRoutine",
         back_populates="workout_plan",
         cascade="all, delete-orphan",
         lazy="selectin",
+        order_by="WorkoutPlanRoutine.position",
     )
-
-
-class Routine(Base):
-    """
-    Maps to plans.routines.
-    A reusable named group of exercises (e.g. 'Push Day', 'Leg Day').
-    """
-    __tablename__ = "routines"
-    __table_args__ = {'schema': 'plans'}
-
-    id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name        = Column(String, nullable=False)
-    description = Column(Text, nullable=True)
-    created_by  = Column(UUID(as_uuid=True), nullable=True)
-    is_template = Column(Boolean, nullable=False, default=False)
-
-    # Relationship: one routine → many exercises
-    exercises = relationship(
-        "RoutineExercise",
-        back_populates="routine",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-        order_by="RoutineExercise.position",
-    )
-
-
-class RoutineExercise(Base):
-    """
-    Maps to plans.routine_exercises.
-    One row = one exercise entry inside a routine, with sets/reps/weight/rest.
-    """
-    __tablename__ = "routine_exercises"
-    __table_args__ = {'schema': 'plans'}
-
-    id                = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    routine_id        = Column(
-        UUID(as_uuid=True),
-        ForeignKey("plans.routines.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    exercise_id       = Column(
-        UUID(as_uuid=True),
-        ForeignKey("library.exercises.id", ondelete="RESTRICT"),
-        nullable=False,
-    )
-    position          = Column(Integer, nullable=False, default=0)   # order within routine
-    sets              = Column(Integer, nullable=True)
-    reps              = Column(Integer, nullable=True)
-    weight_kg         = Column(Numeric(6, 2), nullable=True)
-    rest_time_seconds = Column(Integer, nullable=True)
-
-    routine  = relationship("Routine", back_populates="exercises")
 
 
 class WorkoutPlanRoutine(Base):
     """
     Maps to plans.workout_plan_routines.
-    Links a routine into a plan and defines its schedule slot.
+    Each row IS the routine — name & description live here directly.
+    No separate plans.routines table.
 
     Schedule modes (set by parent plan's schedule_type):
       'nday'   → populate day_number (1, 2, 3 …)
@@ -105,15 +53,47 @@ class WorkoutPlanRoutine(Base):
         ForeignKey("plans.workout_plans.id", ondelete="CASCADE"),
         nullable=False,
     )
-    routine_id  = Column(
-        UUID(as_uuid=True),
-        ForeignKey("plans.routines.id", ondelete="RESTRICT"),
-        nullable=True,   # NULL when is_rest_day = True
-    )
+    name        = Column(String, nullable=True)   # NULL when is_rest_day = True
+    description = Column(Text, nullable=True)
     day_number  = Column(Integer, nullable=True)   # for 'nday' schedule
     day_of_week = Column(Integer, nullable=True)   # for 'weekly' schedule (0=Sun … 6=Sat)
     is_rest_day = Column(Boolean, nullable=False, default=False)
     position    = Column(Integer, nullable=False, default=0)
 
     workout_plan = relationship("WorkoutPlan", back_populates="plan_routines")
-    routine      = relationship("Routine", lazy="selectin")
+    exercises    = relationship(
+        "RoutineExercise",
+        back_populates="routine",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="RoutineExercise.position",
+    )
+
+
+class RoutineExercise(Base):
+    """
+    Maps to plans.routine_exercises.
+    workout_plan_routine_id → plans.workout_plan_routines.id
+    """
+    __tablename__ = "routine_exercises"
+    __table_args__ = {'schema': 'plans'}
+
+    id                      = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workout_plan_routine_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("plans.workout_plan_routines.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    exercise_id       = Column(
+        UUID(as_uuid=True),
+        ForeignKey("library.exercises.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    position          = Column(Integer, nullable=False, default=0)
+    sets              = Column(Integer, nullable=True)
+    reps              = Column(Integer, nullable=True)
+    weight_kg         = Column(Numeric(6, 2), nullable=True)
+    rest_time_seconds = Column(Integer, nullable=True)
+
+    routine  = relationship("WorkoutPlanRoutine", back_populates="exercises")
+    exercise = relationship("Exercise", lazy="selectin", foreign_keys=[exercise_id])
