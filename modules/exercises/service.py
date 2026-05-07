@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from modules.exercises.repository import ExerciseRepository
 from modules.exercises.schemas import (
-    ExerciseCreate, ExerciseUpdate, ExerciseResponse, PaginatedExercises,
+    ExerciseCreate, ExerciseUpdate, ExerciseResponse, PaginatedExercises, FilterOptions,
 )
 
 _repo = ExerciseRepository()
@@ -13,6 +13,10 @@ _repo = ExerciseRepository()
 
 class ExerciseService:
     """Business logic layer for the exercises module."""
+
+    def get_filter_options(self, db: Session) -> FilterOptions:
+        """Return distinct non-null filter values from the live DB."""
+        return _repo.get_filter_options(db)
 
     def list_exercises(
         self,
@@ -24,6 +28,8 @@ class ExerciseService:
         muscle_group: Optional[str],
         equipment_category: Optional[str],
         search: Optional[str],
+        hundred_percent_bodyweight: Optional[bool],
+        is_custom: Optional[bool],
         use_profile: bool,
         user_id: Optional[uuid.UUID],
     ) -> PaginatedExercises:
@@ -40,6 +46,8 @@ class ExerciseService:
             muscle_group=muscle_group,
             equipment_category=equipment_category,
             search=search,
+            hundred_percent_bodyweight=hundred_percent_bodyweight,
+            is_custom=is_custom,
             user_id=user_id if use_profile else None,
         )
 

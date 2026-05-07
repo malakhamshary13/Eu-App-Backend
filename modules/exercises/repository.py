@@ -6,17 +6,77 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from modules.exercises.models import Exercise, ExerciseSecondaryMuscle
-from modules.exercises.schemas import ExerciseCreate, ExerciseUpdate, PaginatedExercises
+from modules.exercises.schemas import ExerciseCreate, ExerciseUpdate, PaginatedExercises, FilterOptions
 from modules.users.models import HealthProfile
 
 
-# Maps a user's primary_goal to exercise filters
-# so that "filter by health profile" returns relevant exercises.
-_GOAL_FILTERS = {
-    "weight_loss":    {"exercise_type": None,           "equipment_category": "barbell"},
-    "muscle_gain":    {"exercise_type": "weight_reps",  "equipment_category": "machine"},
-    "rehab":          {"exercise_type": "reps_only",    "equipment_category": "resistance_band"},
-    "maintenance":    {"exercise_type": None,           "equipment_category": None},
+# Maps a user's primary_goal to exercise filters.
+# Each key holds a list of valid DB values (or None = no filter for that column).
+# Explicit API query params always override these goal defaults.
+_GOAL_FILTERS: dict[str, dict] = {
+    "weight_loss": {
+        "exercise_types": [
+            "duration",
+            "distance_duration",
+            "steps_duration",
+            "floors_duration",
+            "reps_only",
+            "bodyweight_reps",
+        ],
+        "muscle_groups": [
+            "full_body",
+            "cardio",
+            "quadriceps",
+            "glutes",
+            "hamstrings",
+            "abdominals",
+            "calves",
+        ],
+        "equipment_categories": ["none", "resistance_band", "kettlebell"],
+    },
+    "muscle_gain": {
+        "exercise_types": ["weight_reps", "bodyweight_assisted_reps"],
+        "muscle_groups": [
+            "chest",
+            "lats",
+            "upper_back",
+            "biceps",
+            "triceps",
+            "shoulders",
+            "quadriceps",
+            "hamstrings",
+            "glutes",
+            "traps",
+            "forearms",
+        ],
+        "equipment_categories": ["barbell", "dumbbell", "machine", "plate"],
+    },
+    "rehab": {
+        "exercise_types": [
+            "reps_only",
+            "bodyweight_reps",
+            "bodyweight_assisted_reps",
+            "duration",
+        ],
+        "muscle_groups": [
+            "lower_back",
+            "glutes",
+            "hamstrings",
+            "quadriceps",
+            "shoulders",
+            "upper_back",
+            "abductors",
+            "adductors",
+            "calves",
+        ],
+        "equipment_categories": ["resistance_band", "none", "suspension"],
+    },
+    "maintenance": {
+        # No filters — return the full library for users in maintenance mode
+        "exercise_types": None,
+        "muscle_groups": None,
+        "equipment_categories": None,
+    },
 }
 
 
@@ -26,6 +86,29 @@ class ExerciseRepository:
     # ──────────────────────────────────────────
     # Read
     # ──────────────────────────────────────────
+
+    def get_filter_options(self, db: Session) -> FilterOptions:
+        """
+        Return distinct non-null values for every filterable column.
+        Archived exercises are excluded so the UI only shows actionable options.
+        """
+        def _distinct(column):
+            rows = (
+                db.query(column)
+                .filter(Exercise.is_archived.is_(False))
+                .filter(column.isnot(None))
+                .distinct()
+                .order_by(column)
+                .all()
+            )
+            return [r[0] for r in rows if r[0] and r[0].strip()]
+
+        return FilterOptions(
+            exercise_types=_distinct(Exercise.exercise_type),
+            muscle_groups=_distinct(Exercise.muscle_group),
+            equipment_categories=_distinct(Exercise.equipment_category),
+            manual_tags=_distinct(Exercise.manual_tag),
+        )
 
     def get_exercises(
         self,
@@ -37,6 +120,8 @@ class ExerciseRepository:
         muscle_group: Optional[str] = None,
         equipment_category: Optional[str] = None,
         search: Optional[str] = None,
+        hundred_percent_bodyweight: Optional[bool] = None,
+        is_custom: Optional[bool] = None,
         user_id: Optional[uuid.UUID] = None,   # when set, auto-filter by health profile
         include_archived: bool = False,
     ) -> PaginatedExercises:
@@ -44,11 +129,15 @@ class ExerciseRepository:
         Return a paginated, optionally filtered list of exercises.
 
         Filter priority:
-          1. user_id (health profile) provides defaults for exercise_type / equipment_category
-          2. Explicit query params override those defaults
-          3. muscle_group and search are always applied on top
+          1. Explicit query params (single exact-match) always take precedence
+          2. If use_profile=True and a param is not set, goal defaults (list/IN) fill in
+          3. search and boolean filters always stack on top regardless
         """
-        # ── If user_id given, read health profile and derive defaults ──
+        # ── Derive goal-based list filters from health profile ──
+        goal_exercise_types: Optional[list] = None
+        goal_muscle_groups: Optional[list] = None
+        goal_equipment_categories: Optional[list] = None
+
         if user_id:
             profile = (
                 db.query(HealthProfile)
@@ -57,11 +146,13 @@ class ExerciseRepository:
             )
             if profile and profile.primary_goal:
                 defaults = _GOAL_FILTERS.get(profile.primary_goal, {})
-                # Only apply defaults when the caller hasn't specified that filter
+                # Only apply goal defaults when the caller hasn't set that filter
                 if exercise_type is None:
-                    exercise_type = defaults.get("exercise_type")
+                    goal_exercise_types = defaults.get("exercise_types")
+                if muscle_group is None:
+                    goal_muscle_groups = defaults.get("muscle_groups")
                 if equipment_category is None:
-                    equipment_category = defaults.get("equipment_category")
+                    goal_equipment_categories = defaults.get("equipment_categories")
 
         # ── Build query ──
         q = db.query(Exercise)
@@ -69,17 +160,32 @@ class ExerciseRepository:
         if not include_archived:
             q = q.filter(Exercise.is_archived.is_(False))
 
+        # exercise_type: explicit exact match wins, else goal IN() list
         if exercise_type:
             q = q.filter(Exercise.exercise_type == exercise_type)
+        elif goal_exercise_types:
+            q = q.filter(Exercise.exercise_type.in_(goal_exercise_types))
 
+        # muscle_group: explicit exact match wins, else goal IN() list
         if muscle_group:
             q = q.filter(Exercise.muscle_group == muscle_group)
+        elif goal_muscle_groups:
+            q = q.filter(Exercise.muscle_group.in_(goal_muscle_groups))
 
+        # equipment_category: explicit exact match wins, else goal IN() list
         if equipment_category:
             q = q.filter(Exercise.equipment_category == equipment_category)
+        elif goal_equipment_categories:
+            q = q.filter(Exercise.equipment_category.in_(goal_equipment_categories))
 
         if search:
             q = q.filter(Exercise.title.ilike(f"%{search}%"))
+
+        if hundred_percent_bodyweight is not None:
+            q = q.filter(Exercise.hundred_percent_bodyweight.is_(hundred_percent_bodyweight))
+
+        if is_custom is not None:
+            q = q.filter(Exercise.is_custom.is_(is_custom))
 
         # ── Pagination ──
         total = q.count()

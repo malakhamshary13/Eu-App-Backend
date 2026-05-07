@@ -46,6 +46,18 @@ class PaginatedExercises(BaseModel):
     pages: int          # total number of pages
 
 
+class FilterOptions(BaseModel):
+    """
+    Returned by GET /exercises/filters.
+    Each list contains the distinct non-null values that exist in the DB
+    for that column (archived exercises excluded).
+    """
+    exercise_types: List[str]
+    muscle_groups: List[str]
+    equipment_categories: List[str]
+    manual_tags: List[str]
+
+
 # ──────────────────────────────────────────
 # Request / input schemas
 # ──────────────────────────────────────────

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from core.auth import get_current_user, require_admin
 from db.database import get_db
 from modules.exercises.schemas import (
-    ExerciseCreate, ExerciseUpdate, ExerciseResponse, PaginatedExercises,
+    ExerciseCreate, ExerciseUpdate, ExerciseResponse, PaginatedExercises, FilterOptions,
 )
 from modules.exercises.service import ExerciseService
 
@@ -18,6 +18,24 @@ service = ExerciseService()
 # ──────────────────────────────────────────
 # Public / authenticated endpoints
 # ──────────────────────────────────────────
+
+@router.get(
+    "/filters",
+    response_model=FilterOptions,
+    summary="Get available filter options",
+)
+def get_filter_options(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns all distinct non-null values currently present in the exercise library
+    for each filterable column (archived exercises excluded).
+
+    Use this to populate filter dropdowns / chips in the UI without hardcoding values.
+    """
+    return service.get_filter_options(db)
+
 
 @router.get(
     "/",
@@ -44,6 +62,15 @@ def get_exercises(
     search: Optional[str] = Query(
         None,
         description="Search exercises by title (case-insensitive)",
+    ),
+    # ── Boolean filters ──
+    hundred_percent_bodyweight: Optional[bool] = Query(
+        None,
+        description="Filter to bodyweight-only exercises (true) or exclude them (false)",
+    ),
+    is_custom: Optional[bool] = Query(
+        None,
+        description="Filter to user-created exercises (true) or library exercises (false)",
     ),
     # ── Profile-based filter ──
     use_profile: bool = Query(
@@ -77,6 +104,8 @@ def get_exercises(
         muscle_group=muscle_group,
         equipment_category=equipment_category,
         search=search,
+        hundred_percent_bodyweight=hundred_percent_bodyweight,
+        is_custom=is_custom,
         use_profile=use_profile,
         user_id=user_id,
     )
