@@ -3,6 +3,7 @@ import operator as op
 from typing import Optional, List
 
 from fastapi import HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from modules.meals.models import (
@@ -56,6 +57,57 @@ _METRIC_MAP = {
 
 _OPS = {"<": op.lt, "<=": op.le, ">": op.gt, ">=": op.ge}
 
+_FILTER_GROUPS = [
+    (
+        "Meals",
+        [
+            "Breakfast", "lunch", "Mains", "One-dish Meals", "Side Dishes",
+            "Salads", "Soups", "Snacks and Light Meals", "Starters, dips",
+            "Desserts", "Drinks", "Dressings", "Sauces", "Pies, tarts and flans",
+            "Roasts", "Frittatas, quiches", "Fritters", "Casseroles, Stews",
+            "Curries, Asian-style", "Pasta, rice and noodle dishes", "Stir-fries",
+            "Preserves",
+        ],
+    ),
+    (
+        "Special Diets",
+        [
+            "Dairy free", "Diabetes-friendly", "Gluten free", "Gluten-free option",
+            "Low FODMAP recipe options for IBS", "Low FODMAP recipes for IBS",
+            "Nut free", "Vegan", "Vegan option", "Vegetarian",
+        ],
+    ),
+    (
+        "Nutrition",
+        [
+            "0.5 vege serve", "1 vege serve", "1.5 vege serves", "2 vege serves",
+            "2.5 vege serves", "3 vege serves", "3.5 vege serves", "4 vege serves",
+            "4.5 vege serves", "5 vege serves", "5.5 vege serves", "6 vege serves",
+            "6.5 vege serves", "7 vege serves", "8 vege serves", "High calcium",
+            "High fibre", "High iron", "High protein", "high-protein", "Low fat",
+            "Low kilojoule", "Low sodium", "Lower carb",
+        ],
+    ),
+    (
+        "Collections",
+        [
+            "$AVER (low cost)", "5pm panic!", "Family favourites", "Freezes well",
+            "Homemade Takeaways", "How to cook", "How to cook the basics",
+            "Kids can cook", "Kids in the kitchen", "Made just for two",
+            "Makeovers", "Meals for one", "Reader recipes", "RECIPE",
+            "School lunches", "Sponsor recipes", "Work lunches",
+        ],
+    ),
+    (
+        "Cooking",
+        [
+            "Baking", "Barbecue", "Marinades, rubs", "Microwave",
+            "No, or minimal, cooking", "Ready in 20 minutes", "Slow cooker",
+        ],
+    ),
+    ("Seasons", ["Christmas"]),
+]
+
 
 class MealRepository:
 
@@ -90,7 +142,22 @@ class MealRepository:
             .order_by(MealTag.tag_name)
             .all()
         )
-        return MealFilterOptions(tags=[r[0] for r in rows if r[0] and r[0].strip()])
+        tags = [r[0] for r in rows if r[0] and r[0].strip()]
+        available_tags = set(tags)
+        groups = []
+        grouped_tags = set()
+
+        for group_name, group_tags in _FILTER_GROUPS:
+            present_group_tags = [tag for tag in group_tags if tag in available_tags]
+            if present_group_tags:
+                groups.append({"name": group_name, "tags": present_group_tags})
+                grouped_tags.update(present_group_tags)
+
+        other_tags = [tag for tag in tags if tag not in grouped_tags]
+        if other_tags:
+            groups.append({"name": "More", "tags": other_tags})
+
+        return MealFilterOptions(groups=groups)
 
     # ──────────────────────────────────────────
     # List (paginated + filtered)
@@ -104,6 +171,7 @@ class MealRepository:
         page_size: int = 20,
         search: Optional[str] = None,
         tag: Optional[str] = None,
+        tags: Optional[List[str]] = None,
         max_calories: Optional[int] = None,
         min_protein_g: Optional[float] = None,
         max_fat_g: Optional[float] = None,
@@ -119,9 +187,29 @@ class MealRepository:
         if search:
             q = q.filter(Meal.title.ilike(f"%{search}%"))
 
-        # ── Tag filter ──
+        selected_tags = []
         if tag:
-            q = q.join(MealTag).filter(MealTag.tag_name.ilike(tag))
+            selected_tags.append(tag)
+        if tags:
+            selected_tags.extend(tags)
+
+        normalized_tags = sorted({
+            tag_part.strip().lower()
+            for value in selected_tags
+            for tag_part in value.split(",")
+            if tag_part.strip()
+        })
+
+        # ── Tag filter ──
+        if normalized_tags:
+            matching_meal_ids = (
+                db.query(MealTag.meal_id)
+                .filter(func.lower(MealTag.tag_name).in_(normalized_tags))
+                .group_by(MealTag.meal_id)
+                .having(func.count(func.distinct(func.lower(MealTag.tag_name))) == len(normalized_tags))
+                .scalar_subquery()
+            )
+            q = q.filter(Meal.id.in_(matching_meal_ids))
 
         # ── Explicit nutrition filters ──
         if max_calories is not None:

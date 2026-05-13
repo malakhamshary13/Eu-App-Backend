@@ -120,8 +120,13 @@ class PaginatedMeals(BaseModel):
 # Filter options
 # ──────────────────────────────────────────
 
-class MealFilterOptions(BaseModel):
+class MealFilterGroup(BaseModel):
+    name: str
     tags: List[str]
+
+
+class MealFilterOptions(BaseModel):
+    groups: List[MealFilterGroup] = []
 
 
 # ──────────────────────────────────────────

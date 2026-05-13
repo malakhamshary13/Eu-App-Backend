@@ -1,5 +1,5 @@
 import uuid
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -57,6 +57,7 @@ def list_meals(
     page_size:     int            = Query(20,   ge=1, le=100,          description="Results per page (max 100)"),
     search:        Optional[str]  = Query(None,                        description="Search by meal title"),
     tag:           Optional[str]  = Query(None,                        description="Filter by tag (e.g. 'vegan', 'high-protein')"),
+    tags:          Optional[List[str]] = Query(None,                    description="Filter by multiple tags. Repeat this query param or send comma-separated values."),
     max_calories:  Optional[int]  = Query(None,                        description="Maximum calories per serving"),
     min_protein_g: Optional[float]= Query(None,                        description="Minimum protein in grams"),
     max_fat_g:     Optional[float]= Query(None,                        description="Maximum total fat in grams"),
@@ -79,7 +80,7 @@ def list_meals(
     return service.list_meals(
         db,
         page=page, page_size=page_size,
-        search=search, tag=tag,
+        search=search, tag=tag, tags=tags,
         max_calories=max_calories, min_protein_g=min_protein_g,
         max_fat_g=max_fat_g, max_sodium_mg=max_sodium_mg, max_sugar_g=max_sugar_g,
         use_profile=use_profile, user_id=user_id,

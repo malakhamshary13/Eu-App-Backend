@@ -44,4 +44,6 @@ dist/
 
 # Jupyter
 .ipynb_checkpoints/
+.postman/
+postman/
 
