@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Optional, Literal
+
 import uuid
 
 from db.database import ORMBaseModel
@@ -81,7 +82,7 @@ class HealthProfileResponse(ORMBaseModel):
     age: int
     weight: float
     height: float
-    gender: Optional[str] = None
+    gender: Optional[Literal["male", "female"]] = None
     primary_goal: str
     fitness_level: str
     activity_level: str
