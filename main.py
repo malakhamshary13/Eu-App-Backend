@@ -9,6 +9,10 @@ from modules.workouts.router import router as workouts_router
 from modules.meals.router import router as meals_router
 from modules.meal_plans.router import router as meal_plans_router
 from modules.meal_tracking.router import router as meal_tracking_router
+from modules.meal_tracking.nutrition_router import router as nutrition_router
+from modules.workout_tracking.router import router as workout_tracking_router
+from modules.enrollment.router import router as enrollment_router
+from modules.daily_logs.router import router as daily_logs_router
 from fastapi.middleware.cors import CORSMiddleware
 
 # Tables are managed by Supabase migrations — we do NOT call create_all here.
@@ -40,6 +44,10 @@ app.include_router(workouts_router)
 app.include_router(meals_router)
 app.include_router(meal_plans_router)
 app.include_router(meal_tracking_router)
+app.include_router(nutrition_router)
+app.include_router(workout_tracking_router)
+app.include_router(enrollment_router)
+app.include_router(daily_logs_router)
 
 
 @app.get("/")
