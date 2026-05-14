@@ -14,6 +14,7 @@ from modules.workout_tracking.router import router as workout_tracking_router
 from modules.enrollment.router import router as enrollment_router
 from modules.daily_logs.router import router as daily_logs_router
 from modules.rehab.router import router as rehab_router
+from modules.rehab_tracking.router import router as rehab_tracking_router
 from fastapi.middleware.cors import CORSMiddleware
 
 # Tables are managed by Supabase migrations — we do NOT call create_all here.
@@ -50,6 +51,7 @@ app.include_router(workout_tracking_router)
 app.include_router(enrollment_router)
 app.include_router(daily_logs_router)
 app.include_router(rehab_router)
+app.include_router(rehab_tracking_router)
 
 
 @app.get("/")

@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict rbHPrFuMmrucJid4cS0vewt4cW99e1afpQbqEjajEPjNgBr3emGeZHLmEmq1lU8
+\restrict mUKl3vCzuBZt14YEysWJiXOKMwRnxSA9KhMCaraSH8DlbkJ5RwapGUx48MxNwfF
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 18.3
@@ -472,18 +472,208 @@ $$;
 CREATE FUNCTION public.get_user_nutrition_stats(u_id uuid, start_date date, end_date date) RETURNS TABLE(total_protein numeric, total_calories bigint, total_carbs numeric, total_fat numeric, total_sodium numeric)
     LANGUAGE sql
     AS $$
-    SELECT 
-        COALESCE(SUM(n.protein_g), 0),
-        COALESCE(SUM(n.calories_cal), 0),
+    SELECT
+        COALESCE(SUM(n.protein_g),       0),
+        COALESCE(SUM(n.calories_cal),    0),
         COALESCE(SUM(n.carbohydrates_g), 0),
-        COALESCE(SUM(n.total_fat_g), 0),
-        COALESCE(SUM(n.sodium_mg), 0)
+        COALESCE(SUM(n.total_fat_g),     0),
+        COALESCE(SUM(n.sodium_mg),       0)
     FROM tracker.user_meal_schedule s
     JOIN library.meal_nutrition n ON s.meal_id = n.meal_id
-    WHERE s.user_id = u_id
-      AND s.is_eaten = true
-      AND s.scheduled_date >= start_date 
-      AND s.scheduled_date <= end_date;
+    WHERE s.user_id    = u_id
+      AND s.is_eaten   = true
+      AND s.eaten_date IS NOT NULL
+      AND s.eaten_date::date >= start_date
+      AND s.eaten_date::date <= end_date;
+$$;
+
+
+--
+-- Name: get_rehab_completed_sessions(); Type: FUNCTION; Schema: tracker; Owner: -
+--
+
+CREATE FUNCTION tracker.get_rehab_completed_sessions() RETURNS TABLE(session_id uuid, plan_id uuid, routine_id uuid, routine_name text, scheduled_date date, started_at timestamp with time zone, completed_at timestamp with time zone, session_pain_level smallint, session_notes text, total_exercises bigint, exercises_completed bigint, session_exercise_id uuid, exercise_id uuid, exercise_title text, sets_completed smallint, reps_completed smallint, hold_time_seconds integer, exercise_is_completed boolean, exercise_pain_level smallint, exercise_notes text)
+    LANGUAGE sql SECURITY DEFINER
+    SET search_path TO 'tracker', 'plans', 'library', 'public'
+    AS $$
+    SELECT
+        rs.id AS session_id,
+        rs.plan_id,
+        rs.routine_id,
+        rr.name AS routine_name,
+        rs.scheduled_date,
+        rs.started_at,
+        rs.completed_at,
+        rs.pain_level AS session_pain_level,
+        rs.notes AS session_notes,
+        COUNT(rse.id) OVER (PARTITION BY rs.id) AS total_exercises,
+        COUNT(rse.id) FILTER (WHERE rse.is_completed) OVER (PARTITION BY rs.id) AS exercises_completed,
+        rse.id AS session_exercise_id,
+        rse.exercise_id,
+        re.title AS exercise_title,
+        rse.sets_completed,
+        rse.reps_completed,
+        rse.hold_time_seconds,
+        rse.is_completed AS exercise_is_completed,
+        rse.pain_level AS exercise_pain_level,
+        rse.notes AS exercise_notes
+    FROM tracker.rehab_sessions rs
+    LEFT JOIN plans.rehab_routines rr ON rr.id = rs.routine_id
+    LEFT JOIN tracker.rehab_session_exercises rse ON rse.session_id = rs.id
+    LEFT JOIN library.rehab_exercises re ON re.id = rse.exercise_id
+    WHERE rs.user_id = auth.uid()
+      AND rs.status = 'completed'
+    ORDER BY rs.scheduled_date DESC, rs.completed_at DESC, rse.id;
+$$;
+
+
+--
+-- Name: get_rehab_exercise_progress(uuid); Type: FUNCTION; Schema: tracker; Owner: -
+--
+
+CREATE FUNCTION tracker.get_rehab_exercise_progress(p_exercise_id uuid) RETURNS TABLE(session_id uuid, scheduled_date date, routine_name text, planned_sets integer, planned_reps integer, planned_hold_secs integer, sets_completed smallint, reps_completed smallint, hold_time_seconds integer, is_completed boolean, pain_level smallint, notes text)
+    LANGUAGE sql SECURITY DEFINER
+    SET search_path TO 'tracker', 'plans', 'public'
+    AS $$
+    SELECT
+        rs.id,
+        rs.scheduled_date,
+        rr.name,
+        rre.sets,
+        rre.reps,
+        rre.hold_time_seconds,
+        rse.sets_completed,
+        rse.reps_completed,
+        rse.hold_time_seconds,
+        rse.is_completed,
+        rse.pain_level,
+        rse.notes
+    FROM tracker.rehab_session_exercises rse
+    JOIN tracker.rehab_sessions rs ON rs.id = rse.session_id AND rs.user_id = auth.uid()
+    LEFT JOIN plans.rehab_routines rr ON rr.id = rs.routine_id
+    LEFT JOIN plans.rehab_routine_exercises rre ON rre.id = rse.routine_exercise_id
+    WHERE rse.exercise_id = p_exercise_id
+    ORDER BY rs.scheduled_date ASC;
+$$;
+
+
+--
+-- Name: get_rehab_session_detail(uuid); Type: FUNCTION; Schema: tracker; Owner: -
+--
+
+CREATE FUNCTION tracker.get_rehab_session_detail(p_session_id uuid) RETURNS TABLE(session_id uuid, scheduled_date date, routine_name text, session_status character varying, session_pain_level smallint, session_notes text, started_at timestamp with time zone, completed_at timestamp with time zone, total_exercises bigint, exercises_completed bigint, session_exercise_id uuid, exercise_id uuid, exercise_title text, order_index integer, planned_sets integer, planned_reps integer, planned_hold_seconds integer, sets_completed smallint, reps_completed smallint, hold_time_seconds integer, is_completed boolean, pain_level smallint, notes text)
+    LANGUAGE sql SECURITY DEFINER
+    SET search_path TO 'tracker', 'plans', 'library', 'public'
+    AS $$
+    SELECT
+        rs.id AS session_id,
+        rs.scheduled_date,
+        rr.name AS routine_name,
+        rs.status AS session_status,
+        rs.pain_level AS session_pain_level,
+        rs.notes AS session_notes,
+        rs.started_at,
+        rs.completed_at,
+        COUNT(rse.id) OVER () AS total_exercises,
+        COUNT(rse.id) FILTER (WHERE rse.is_completed) OVER () AS exercises_completed,
+        rse.id AS session_exercise_id,
+        rse.exercise_id,
+        re.title AS exercise_title,
+        rre.order_index,
+        rre.sets AS planned_sets,
+        rre.reps AS planned_reps,
+        rre.hold_time_seconds AS planned_hold_seconds,
+        rse.sets_completed,
+        rse.reps_completed,
+        rse.hold_time_seconds,
+        rse.is_completed,
+        rse.pain_level,
+        rse.notes
+    FROM tracker.rehab_sessions rs
+    LEFT JOIN plans.rehab_routines rr ON rr.id = rs.routine_id
+    LEFT JOIN tracker.rehab_session_exercises rse ON rse.session_id = rs.id
+    LEFT JOIN plans.rehab_routine_exercises rre ON rre.id = rse.routine_exercise_id
+    LEFT JOIN library.rehab_exercises re ON re.id = rse.exercise_id
+    WHERE rs.id = p_session_id AND rs.user_id = auth.uid()
+    ORDER BY rre.order_index, rse.id;
+$$;
+
+
+--
+-- Name: get_rehab_streaks(); Type: FUNCTION; Schema: tracker; Owner: -
+--
+
+CREATE FUNCTION tracker.get_rehab_streaks() RETURNS TABLE(current_streak integer, longest_streak integer, last_active_day date)
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'tracker', 'public'
+    AS $$
+DECLARE
+    v_today date := CURRENT_DATE;
+    v_current int := 0;
+    v_longest int := 0;
+    v_run int := 0;
+    v_prev date := NULL;
+    v_last date := NULL;
+    v_day date;
+BEGIN
+    FOR v_day IN SELECT DISTINCT scheduled_date FROM tracker.rehab_sessions 
+                 WHERE user_id = auth.uid() AND status = 'completed' 
+                 ORDER BY scheduled_date DESC
+    LOOP
+        IF v_last IS NULL THEN v_last := v_day; END IF;
+        IF v_prev IS NULL THEN
+            v_run := 1;
+            IF v_day >= v_today - 1 THEN v_current := 1; END IF;
+        ELSIF v_prev - v_day = 1 THEN
+            v_run := v_run + 1;
+            IF v_current > 0 THEN v_current := v_run; END IF;
+        ELSE
+            v_run := 1;
+        END IF;
+        IF v_run > v_longest THEN v_longest := v_run; END IF;
+        v_prev := v_day;
+    END LOOP;
+    RETURN QUERY SELECT v_current, COALESCE(v_longest, 0), v_last;
+END;
+$$;
+
+
+--
+-- Name: get_workout_streaks(); Type: FUNCTION; Schema: tracker; Owner: -
+--
+
+CREATE FUNCTION tracker.get_workout_streaks() RETURNS TABLE(current_streak integer, longest_streak integer, last_active_day date)
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'tracker', 'public'
+    AS $$
+DECLARE
+    v_today date := CURRENT_DATE;
+    v_current int := 0;
+    v_longest int := 0;
+    v_run int := 0;
+    v_prev date := NULL;
+    v_last date := NULL;
+    v_day date;
+BEGIN
+    FOR v_day IN SELECT DISTINCT COALESCE(scheduled_date, completed_at::date) FROM tracker.workout_sessions 
+                 WHERE user_id = auth.uid() AND status = 'completed' 
+                 ORDER BY 1 DESC
+    LOOP
+        IF v_last IS NULL THEN v_last := v_day; END IF;
+        IF v_prev IS NULL THEN
+            v_run := 1;
+            IF v_day >= v_today - 1 THEN v_current := 1; END IF;
+        ELSIF v_prev - v_day = 1 THEN
+            v_run := v_run + 1;
+            IF v_current > 0 THEN v_current := v_run; END IF;
+        ELSE
+            v_run := 1;
+        END IF;
+        IF v_run > v_longest THEN v_longest := v_run; END IF;
+        v_prev := v_day;
+    END LOOP;
+    RETURN QUERY SELECT v_current, COALESCE(v_longest, 0), v_last;
+END;
 $$;
 
 
@@ -881,17 +1071,17 @@ CREATE TABLE plans.workout_plans (
 
 CREATE TABLE profile.health_profiles (
     user_id uuid NOT NULL,
-    age integer,
-    weight numeric(5,2),
-    height numeric(5,2),
-    primary_goal character varying,
+    age integer NOT NULL,
+    weight numeric(5,2) NOT NULL,
+    height numeric(5,2) NOT NULL,
+    primary_goal character varying DEFAULT 'general'::character varying,
     injury_details text,
-    recovery_stage character varying,
+    recovery_stage character varying DEFAULT 'acute'::character varying,
     medical_diet_notes text,
-    gender character varying(20),
+    gender character varying(20) NOT NULL,
     fitness_level character varying(20) DEFAULT 'Beginner'::character varying NOT NULL,
     activity_level character varying(30) DEFAULT 'Sedentary'::character varying NOT NULL,
-    daily_calorie_target integer,
+    daily_calorie_target integer DEFAULT 2000,
     current_streak integer DEFAULT 0 NOT NULL,
     longest_streak integer DEFAULT 0 NOT NULL,
     updated_at timestamp with time zone DEFAULT now(),
@@ -900,7 +1090,14 @@ CREATE TABLE profile.health_profiles (
     CONSTRAINT chk_age CHECK (((age >= 5) AND (age <= 100))),
     CONSTRAINT chk_height CHECK (((height >= (50)::numeric) AND (height <= (280)::numeric))),
     CONSTRAINT chk_weight CHECK (((weight >= (20)::numeric) AND (weight <= (300)::numeric))),
-    CONSTRAINT health_profiles_age_check CHECK (((age > 0) AND (age < 130)))
+    CONSTRAINT health_profiles_activity_level_check CHECK (((activity_level)::text = ANY ((ARRAY['Sedentary'::character varying, 'Lightly Active'::character varying, 'Moderately Active'::character varying, 'Very Active'::character varying, 'Extra Active'::character varying])::text[]))),
+    CONSTRAINT health_profiles_age_check CHECK (((age > 0) AND (age < 130))),
+    CONSTRAINT health_profiles_calories_check CHECK (((daily_calorie_target >= 500) AND (daily_calorie_target <= 10000))),
+    CONSTRAINT health_profiles_fitness_level_check CHECK (((fitness_level)::text = ANY ((ARRAY['Beginner'::character varying, 'Intermediate'::character varying, 'Advanced'::character varying])::text[]))),
+    CONSTRAINT health_profiles_gender_check CHECK (((gender)::text = ANY ((ARRAY['male'::character varying, 'female'::character varying])::text[]))),
+    CONSTRAINT health_profiles_primary_goal_check CHECK (((primary_goal)::text = ANY ((ARRAY['weight_loss'::character varying, 'muscle_gain'::character varying, 'rehab'::character varying, 'general'::character varying])::text[]))),
+    CONSTRAINT health_profiles_recovery_stage_check CHECK (((recovery_stage)::text = ANY ((ARRAY['acute'::character varying, 'sub-acute'::character varying, 'chronic'::character varying])::text[]))),
+    CONSTRAINT health_profiles_streaks_non_negative CHECK (((current_streak >= 0) AND (longest_streak >= 0)))
 );
 
 
@@ -936,31 +1133,6 @@ CREATE TABLE profile.users (
     username character varying,
     email character varying,
     CONSTRAINT users_role_check CHECK (((role)::text = ANY ((ARRAY['admin'::character varying, 'rehab'::character varying, 'general'::character varying, 'fitness'::character varying])::text[])))
-);
-
-
---
--- Name: health_profiles; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.health_profiles (
-    profile_id uuid NOT NULL,
-    user_id uuid NOT NULL,
-    age smallint NOT NULL,
-    weight numeric(5,2) NOT NULL,
-    height numeric(5,2) NOT NULL,
-    gender character varying(20),
-    primary_goal character varying(30) NOT NULL,
-    fitness_level character varying(20) NOT NULL,
-    activity_level character varying(30) NOT NULL,
-    daily_calorie_target integer,
-    current_streak integer NOT NULL,
-    longest_streak integer NOT NULL,
-    injury_details character varying(500),
-    recovery_stage character varying(100),
-    medical_diet_notes character varying(1000),
-    created_at timestamp without time zone NOT NULL,
-    updated_at timestamp without time zone NOT NULL
 );
 
 
@@ -1040,6 +1212,47 @@ CREATE TABLE tracker.daily_logs (
     recovery_notes text,
     CONSTRAINT daily_logs_calories_consumed_check CHECK ((calories_consumed >= 0)),
     CONSTRAINT daily_logs_workouts_completed_check CHECK ((workouts_completed >= 0))
+);
+
+
+--
+-- Name: rehab_session_exercises; Type: TABLE; Schema: tracker; Owner: -
+--
+
+CREATE TABLE tracker.rehab_session_exercises (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    session_id uuid NOT NULL,
+    routine_exercise_id uuid NOT NULL,
+    exercise_id uuid NOT NULL,
+    sets_completed smallint,
+    reps_completed smallint,
+    hold_time_seconds integer,
+    is_completed boolean DEFAULT false NOT NULL,
+    pain_level smallint,
+    notes text,
+    CONSTRAINT rehab_session_exercises_pain_level_check CHECK (((pain_level >= 1) AND (pain_level <= 10)))
+);
+
+
+--
+-- Name: rehab_sessions; Type: TABLE; Schema: tracker; Owner: -
+--
+
+CREATE TABLE tracker.rehab_sessions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    routine_id uuid NOT NULL,
+    plan_id uuid NOT NULL,
+    scheduled_date date NOT NULL,
+    status character varying DEFAULT 'scheduled'::character varying NOT NULL,
+    started_at timestamp with time zone,
+    completed_at timestamp with time zone,
+    pain_level smallint,
+    notes text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT rehab_sessions_completed_after_started CHECK (((completed_at IS NULL) OR (completed_at >= started_at))),
+    CONSTRAINT rehab_sessions_pain_level_check CHECK (((pain_level >= 1) AND (pain_level <= 10))),
+    CONSTRAINT rehab_sessions_status_check CHECK (((status)::text = ANY ((ARRAY['scheduled'::character varying, 'in_progress'::character varying, 'completed'::character varying, 'skipped'::character varying])::text[])))
 );
 
 
@@ -1382,14 +1595,6 @@ ALTER TABLE ONLY profile.users
 
 
 --
--- Name: health_profiles health_profiles_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.health_profiles
-    ADD CONSTRAINT health_profiles_pkey PRIMARY KEY (profile_id);
-
-
---
 -- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1427,6 +1632,22 @@ ALTER TABLE ONLY tracker.daily_logs
 
 ALTER TABLE ONLY tracker.daily_logs
     ADD CONSTRAINT daily_logs_user_id_date_key UNIQUE (user_id, date);
+
+
+--
+-- Name: rehab_session_exercises rehab_session_exercises_pkey; Type: CONSTRAINT; Schema: tracker; Owner: -
+--
+
+ALTER TABLE ONLY tracker.rehab_session_exercises
+    ADD CONSTRAINT rehab_session_exercises_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rehab_sessions rehab_sessions_pkey; Type: CONSTRAINT; Schema: tracker; Owner: -
+--
+
+ALTER TABLE ONLY tracker.rehab_sessions
+    ADD CONSTRAINT rehab_sessions_pkey PRIMARY KEY (id);
 
 
 --
@@ -1601,13 +1822,6 @@ CREATE INDEX idx_user_chronic_condition_id ON profile.user_chronic_conditions US
 
 
 --
--- Name: ix_public_health_profiles_user_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX ix_public_health_profiles_user_id ON public.health_profiles USING btree (user_id);
-
-
---
 -- Name: ix_users_email; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1689,6 +1903,55 @@ CREATE INDEX idx_meal_sched_date ON tracker.user_meal_schedule USING btree (sche
 --
 
 CREATE INDEX idx_meal_sched_user ON tracker.user_meal_schedule USING btree (user_id);
+
+
+--
+-- Name: idx_rehab_sess_ex_exercise; Type: INDEX; Schema: tracker; Owner: -
+--
+
+CREATE INDEX idx_rehab_sess_ex_exercise ON tracker.rehab_session_exercises USING btree (exercise_id);
+
+
+--
+-- Name: idx_rehab_sess_ex_session; Type: INDEX; Schema: tracker; Owner: -
+--
+
+CREATE INDEX idx_rehab_sess_ex_session ON tracker.rehab_session_exercises USING btree (session_id);
+
+
+--
+-- Name: idx_rehab_sessions_date; Type: INDEX; Schema: tracker; Owner: -
+--
+
+CREATE INDEX idx_rehab_sessions_date ON tracker.rehab_sessions USING btree (scheduled_date);
+
+
+--
+-- Name: idx_rehab_sessions_plan; Type: INDEX; Schema: tracker; Owner: -
+--
+
+CREATE INDEX idx_rehab_sessions_plan ON tracker.rehab_sessions USING btree (plan_id);
+
+
+--
+-- Name: idx_rehab_sessions_routine; Type: INDEX; Schema: tracker; Owner: -
+--
+
+CREATE INDEX idx_rehab_sessions_routine ON tracker.rehab_sessions USING btree (routine_id);
+
+
+--
+-- Name: idx_rehab_sessions_status; Type: INDEX; Schema: tracker; Owner: -
+--
+
+CREATE INDEX idx_rehab_sessions_status ON tracker.rehab_sessions USING btree (status);
+
+
+--
+-- Name: idx_rehab_sessions_user; Type: INDEX; Schema: tracker; Owner: -
+--
+
+CREATE INDEX idx_rehab_sessions_user ON tracker.rehab_sessions USING btree (user_id);
 
 
 --
@@ -1957,6 +2220,54 @@ ALTER TABLE ONLY system.notifications
 
 ALTER TABLE ONLY tracker.daily_logs
     ADD CONSTRAINT daily_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: rehab_session_exercises rehab_session_exercises_exercise_id_fkey; Type: FK CONSTRAINT; Schema: tracker; Owner: -
+--
+
+ALTER TABLE ONLY tracker.rehab_session_exercises
+    ADD CONSTRAINT rehab_session_exercises_exercise_id_fkey FOREIGN KEY (exercise_id) REFERENCES library.rehab_exercises(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rehab_session_exercises rehab_session_exercises_routine_exercise_id_fkey; Type: FK CONSTRAINT; Schema: tracker; Owner: -
+--
+
+ALTER TABLE ONLY tracker.rehab_session_exercises
+    ADD CONSTRAINT rehab_session_exercises_routine_exercise_id_fkey FOREIGN KEY (routine_exercise_id) REFERENCES plans.rehab_routine_exercises(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rehab_session_exercises rehab_session_exercises_session_id_fkey; Type: FK CONSTRAINT; Schema: tracker; Owner: -
+--
+
+ALTER TABLE ONLY tracker.rehab_session_exercises
+    ADD CONSTRAINT rehab_session_exercises_session_id_fkey FOREIGN KEY (session_id) REFERENCES tracker.rehab_sessions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: rehab_sessions rehab_sessions_plan_id_fkey; Type: FK CONSTRAINT; Schema: tracker; Owner: -
+--
+
+ALTER TABLE ONLY tracker.rehab_sessions
+    ADD CONSTRAINT rehab_sessions_plan_id_fkey FOREIGN KEY (plan_id) REFERENCES plans.rehab_plans(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rehab_sessions rehab_sessions_routine_id_fkey; Type: FK CONSTRAINT; Schema: tracker; Owner: -
+--
+
+ALTER TABLE ONLY tracker.rehab_sessions
+    ADD CONSTRAINT rehab_sessions_routine_id_fkey FOREIGN KEY (routine_id) REFERENCES plans.rehab_routines(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: rehab_sessions rehab_sessions_user_id_fkey; Type: FK CONSTRAINT; Schema: tracker; Owner: -
+--
+
+ALTER TABLE ONLY tracker.rehab_sessions
+    ADD CONSTRAINT rehab_sessions_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 
 
 --
@@ -2322,6 +2633,18 @@ CREATE POLICY "users: own notifications" ON system.notifications FOR SELECT USIN
 ALTER TABLE tracker.daily_logs ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: rehab_session_exercises; Type: ROW SECURITY; Schema: tracker; Owner: -
+--
+
+ALTER TABLE tracker.rehab_session_exercises ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rehab_sessions; Type: ROW SECURITY; Schema: tracker; Owner: -
+--
+
+ALTER TABLE tracker.rehab_sessions ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: user_meal_schedule; Type: ROW SECURITY; Schema: tracker; Owner: -
 --
 
@@ -2339,6 +2662,22 @@ CREATE POLICY "users: own daily logs" ON tracker.daily_logs USING ((user_id = au
 --
 
 CREATE POLICY "users: own meal schedule" ON tracker.user_meal_schedule USING ((user_id = auth.uid()));
+
+
+--
+-- Name: rehab_session_exercises users: own rehab session exercises; Type: POLICY; Schema: tracker; Owner: -
+--
+
+CREATE POLICY "users: own rehab session exercises" ON tracker.rehab_session_exercises USING ((EXISTS ( SELECT 1
+   FROM tracker.rehab_sessions s
+  WHERE ((s.id = rehab_session_exercises.session_id) AND (s.user_id = auth.uid())))));
+
+
+--
+-- Name: rehab_sessions users: own rehab sessions; Type: POLICY; Schema: tracker; Owner: -
+--
+
+CREATE POLICY "users: own rehab sessions" ON tracker.rehab_sessions USING ((user_id = auth.uid()));
 
 
 --
@@ -2431,5 +2770,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict rbHPrFuMmrucJid4cS0vewt4cW99e1afpQbqEjajEPjNgBr3emGeZHLmEmq1lU8
+\unrestrict mUKl3vCzuBZt14YEysWJiXOKMwRnxSA9KhMCaraSH8DlbkJ5RwapGUx48MxNwfF
 
