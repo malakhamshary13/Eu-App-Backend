@@ -8,6 +8,7 @@ from modules.exercises.router import router as exercises_router
 from modules.workouts.router import router as workouts_router
 from modules.meals.router import router as meals_router
 from modules.meal_plans.router import router as meal_plans_router
+from modules.meal_tracking.router import router as meal_tracking_router
 from fastapi.middleware.cors import CORSMiddleware
 
 # Tables are managed by Supabase migrations — we do NOT call create_all here.
@@ -38,6 +39,7 @@ app.include_router(exercises_router)
 app.include_router(workouts_router)
 app.include_router(meals_router)
 app.include_router(meal_plans_router)
+app.include_router(meal_tracking_router)
 
 
 @app.get("/")
