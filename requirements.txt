@@ -7,3 +7,4 @@ uvicorn
 datetime
 psycopg2
 pydantic[email]
+slowapi

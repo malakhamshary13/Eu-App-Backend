@@ -1,8 +1,10 @@
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
+
+from core.limiter import limiter
 
 from core.auth import get_current_user
 from db.database import get_db
@@ -27,7 +29,9 @@ service = WorkoutService()
     response_model=List[WorkoutPlanListItem],
     summary="List my workout plans",
 )
+@limiter.limit("30/minute")  # read
 def list_my_plans(
+    request: Request,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -42,7 +46,9 @@ def list_my_plans(
     status_code=201,
     summary="Create a workout plan",
 )
+@limiter.limit("10/minute")  # write mutation
 def create_plan(
+    request: Request,
     data: WorkoutPlanCreate,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -64,7 +70,9 @@ def create_plan(
     response_model=WorkoutPlanResponse,
     summary="Get a workout plan with all routines and exercises",
 )
+@limiter.limit("20/minute")  # read
 def get_plan(
+    request: Request,
     plan_id: uuid.UUID,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -82,7 +90,9 @@ def get_plan(
     response_model=WorkoutPlanResponse,
     summary="Update a workout plan (owner only)",
 )
+@limiter.limit("20/minute")  # write mutation
 def update_plan(
+    request: Request,
     plan_id: uuid.UUID,
     data: WorkoutPlanUpdate,
     current_user=Depends(get_current_user),
@@ -97,7 +107,9 @@ def update_plan(
     "/plans/{plan_id}",
     summary="Delete a workout plan (owner only)",
 )
+@limiter.limit("10/minute")  # write mutation
 def delete_plan(
+    request: Request,
     plan_id: uuid.UUID,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -117,7 +129,9 @@ def delete_plan(
     status_code=201,
     summary="Add a routine to a plan (owner only)",
 )
+@limiter.limit("10/minute")  # write mutation
 def create_routine_for_plan(
+    request: Request,
     plan_id: uuid.UUID,
     data: CreateRoutineInPlan,
     current_user=Depends(get_current_user),
@@ -145,7 +159,9 @@ def create_routine_for_plan(
     response_model=WorkoutPlanRoutineResponse,
     summary="Get a routine with its exercises",
 )
+@limiter.limit("30/minute")  # read
 def get_routine(
+    request: Request,
     routine_id: uuid.UUID,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -162,7 +178,9 @@ def get_routine(
     "/routines/{routine_id}",
     summary="Delete a routine and its exercises (owner only)",
 )
+@limiter.limit("30/minute")  # write mutation
 def delete_routine(
+    request: Request,
     routine_id: uuid.UUID,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -182,7 +200,9 @@ def delete_routine(
     status_code=201,
     summary="Add an exercise to a routine (owner only)",
 )
+@limiter.limit("30/minute")  # write mutation
 def add_exercise_to_routine(
+    request: Request,
     routine_id: uuid.UUID,
     data: RoutineExerciseCreate,
     current_user=Depends(get_current_user),

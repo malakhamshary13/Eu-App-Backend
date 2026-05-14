@@ -1,8 +1,10 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
+
+from core.limiter import limiter
 
 from core.auth import get_current_user, require_admin
 from db.database import get_db
@@ -24,7 +26,9 @@ service = ExerciseService()
     response_model=FilterOptions,
     summary="Get available filter options",
 )
+@limiter.limit("60/minute")  # read
 def get_filter_options(
+    request: Request,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -42,7 +46,9 @@ def get_filter_options(
     response_model=PaginatedExercises,
     summary="List exercises (paginated + filtered)",
 )
+@limiter.limit("60/minute")  # read — paginated browse
 def get_exercises(
+    request: Request,
     # ── Pagination ──
     page: int = Query(1, ge=1, description="Page number (starts at 1)"),
     page_size: int = Query(20, ge=1, le=100, description="Results per page (max 100)"),
@@ -116,7 +122,9 @@ def get_exercises(
     response_model=ExerciseResponse,
     summary="Get a single exercise by ID",
 )
+@limiter.limit("60/minute")  # read
 def get_exercise_by_id(
+    request: Request,
     exercise_id: uuid.UUID,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -135,7 +143,9 @@ def get_exercise_by_id(
     status_code=201,
     summary="[Admin] Create a new exercise",
 )
+@limiter.limit("30/minute")  # write mutation
 def create_exercise(
+    request: Request,
     data: ExerciseCreate,
     _admin=Depends(require_admin),
     db: Session = Depends(get_db),
@@ -152,7 +162,9 @@ def create_exercise(
     response_model=ExerciseResponse,
     summary="[Admin] Update an exercise",
 )
+@limiter.limit("30/minute")  # write mutation
 def update_exercise(
+    request: Request,
     exercise_id: uuid.UUID,
     data: ExerciseUpdate,
     _admin=Depends(require_admin),
@@ -170,7 +182,9 @@ def update_exercise(
     "/{exercise_id}",
     summary="[Admin] Archive (soft-delete) an exercise",
 )
+@limiter.limit("30/minute")  # write mutation
 def delete_exercise(
+    request: Request,
     exercise_id: uuid.UUID,
     _admin=Depends(require_admin),
     db: Session = Depends(get_db),

@@ -1,8 +1,10 @@
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
+
+from core.limiter import limiter
 
 from core.auth import get_current_user, require_admin
 from db.database import get_db
@@ -23,7 +25,8 @@ repo = AuthRepository()
 # ──────────────────────────────────────────
 
 @router.post("/register", response_model=Token, summary="Register a new user")
-def register(user_data: UserCreate, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")  # tight  prevents mass account creation
+def register(request: Request, user_data: UserCreate, db: Session = Depends(get_db)):
     """
     Create a new account with Supabase Auth.
     Returns a JWT access token + refresh token on success.
@@ -32,7 +35,8 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=Token, summary="Login with email or username & password")
-def login(user_data: UserLogin, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")  # brute-force & credential-stuffing protection
+def login(request: Request, user_data: UserLogin, db: Session = Depends(get_db)):
     """
     Authenticate with either an email address or a username, plus password.
     Returns a JWT access token + refresh token on success.
@@ -41,7 +45,8 @@ def login(user_data: UserLogin, db: Session = Depends(get_db)):
 
 
 @router.post("/refresh", response_model=Token, summary="Refresh access token")
-def refresh(body: RefreshTokenRequest):
+@limiter.limit("5/minute")  # prevents token-refresh spam / session hijacking attempts
+def refresh(request: Request, body: RefreshTokenRequest):
     """
     Exchange a valid refresh_token for a fresh access_token + rotated refresh_token.
     The old refresh_token is immediately invalidated by Supabase after use.
@@ -67,12 +72,26 @@ def me(current_user=Depends(get_current_user)):
     }
 
 
+@router.post("/logout", status_code=200, summary="Logout current user")
+def logout(current_user=Depends(get_current_user)):
+    """
+    Invalidate the current session on Supabase.
+    The refresh token is revoked server-side; the client should discard
+    its access_token and refresh_token immediately after calling this.
+    Requires a valid Bearer token in the Authorization header.
+    """
+    service.logout_user()
+    return {"message": "Successfully logged out."}
+
+
 @router.post(
     "/health-profile",
     response_model=HealthProfileResponse,
     summary="Create or update health profile",
 )
+@limiter.limit("20/minute")  # write mutation
 def create_health_profile(
+    request: Request,
     data: UserMetricInput,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -86,8 +105,9 @@ def create_health_profile(
     return service.store_user_metrics(db, user_id, data)
 
 
-@router.get("/health-profile",response_model=HealthProfileResponse,summary="Get my health profile")
-def get_health_profile(current_user=Depends(get_current_user),db: Session = Depends(get_db)):
+@router.get("/health-profile", response_model=HealthProfileResponse, summary="Get my health profile")
+@limiter.limit("30/minute")  # 
+def get_health_profile(request: Request, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     """
     Return the authenticated user's stored health profile.
     """

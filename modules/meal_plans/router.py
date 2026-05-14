@@ -1,8 +1,10 @@
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
+
+from core.limiter import limiter
 
 from core.auth import get_current_user, require_admin
 from db.database import get_db
@@ -26,7 +28,9 @@ service = MealPlanService()
     response_model=List[MealPlanListItem],
     summary="Browse admin meal plan templates",
 )
+@limiter.limit("60/minute")  # read
 def list_templates(
+    request: Request,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -47,7 +51,9 @@ def list_templates(
     response_model=List[MealPlanListItem],
     summary="List my meal plans",
 )
+@limiter.limit("60/minute")  # read
 def list_my_plans(
+    request: Request,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -62,7 +68,9 @@ def list_my_plans(
     status_code=201,
     summary="Create a meal plan",
 )
+@limiter.limit("30/minute")  # write mutation
 def create_plan(
+    request: Request,
     data: MealPlanCreate,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -89,7 +97,9 @@ def create_plan(
     response_model=MealPlanResponse,
     summary="Get a meal plan with all its meals",
 )
+@limiter.limit("60/minute")  # read
 def get_plan(
+    request: Request,
     plan_id: uuid.UUID,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -113,7 +123,9 @@ def get_plan(
     response_model=MealPlanResponse,
     summary="Update a meal plan (owner only)",
 )
+@limiter.limit("30/minute")  # write mutation
 def update_plan(
+    request: Request,
     plan_id: uuid.UUID,
     data: MealPlanUpdate,
     current_user=Depends(get_current_user),
@@ -132,7 +144,9 @@ def update_plan(
     "/{plan_id}",
     summary="Delete a meal plan (owner only)",
 )
+@limiter.limit("30/minute")  # write mutation
 def delete_plan(
+    request: Request,
     plan_id: uuid.UUID,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -155,7 +169,9 @@ def delete_plan(
     status_code=201,
     summary="Assign a meal to a slot in the plan (owner only)",
 )
+@limiter.limit("30/minute")  # write mutation
 def add_slot(
+    request: Request,
     plan_id: uuid.UUID,
     data: MealPlanSlotCreate,
     current_user=Depends(get_current_user),
@@ -180,7 +196,9 @@ def add_slot(
     "/{plan_id}/slots/{slot_id}",
     summary="Remove a meal from a plan slot (owner only)",
 )
+@limiter.limit("30/minute")  # write mutation
 def remove_slot(
+    request: Request,
     plan_id: uuid.UUID,
     slot_id: uuid.UUID,
     current_user=Depends(get_current_user),

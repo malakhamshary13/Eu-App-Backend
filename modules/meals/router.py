@@ -1,8 +1,10 @@
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
+
+from core.limiter import limiter
 
 from core.auth import get_current_user, require_admin
 from db.database import get_db
@@ -20,7 +22,9 @@ service = MealService()
 # ──────────────────────────────────────────
 
 @router.get("/filters", response_model=MealFilterOptions, summary="Get available meal filter tags")
+@limiter.limit("60/minute")  # read
 def get_filter_options(
+    request: Request,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -29,7 +33,9 @@ def get_filter_options(
 
 
 @router.get("/recommend", response_model=PaginatedMeals, summary="Recommend meals based on my health profile")
+@limiter.limit("20/minute")  # expensive DB query — tighter cap
 def recommend_meals(
+    request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     current_user=Depends(get_current_user),
@@ -52,7 +58,9 @@ def recommend_meals(
 
 
 @router.get("/", response_model=PaginatedMeals, summary="List meals (paginated + filtered)")
+@limiter.limit("60/minute")  # read — paginated browse
 def list_meals(
+    request: Request,
     page:          int            = Query(1,    ge=1,                  description="Page number"),
     page_size:     int            = Query(20,   ge=1, le=100,          description="Results per page (max 100)"),
     search:        Optional[str]  = Query(None,                        description="Search by meal title"),
@@ -88,7 +96,9 @@ def list_meals(
 
 
 @router.get("/{meal_id}", response_model=MealDetailResponse, summary="Get full meal details")
+@limiter.limit("60/minute")  # read
 def get_meal(
+    request: Request,
     meal_id: uuid.UUID,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -102,7 +112,9 @@ def get_meal(
 # ──────────────────────────────────────────
 
 @router.post("/", response_model=MealDetailResponse, status_code=201, summary="[Admin] Add a meal to the library")
+@limiter.limit("30/minute")  # write mutation
 def create_meal(
+    request: Request,
     data: MealCreate,
     _admin=Depends(require_admin),
     db: Session = Depends(get_db),
@@ -115,7 +127,9 @@ def create_meal(
 
 
 @router.delete("/{meal_id}", summary="[Admin] Delete a meal")
+@limiter.limit("30/minute")  # write mutation
 def delete_meal(
+    request: Request,
     meal_id: uuid.UUID,
     _admin=Depends(require_admin),
     db: Session = Depends(get_db),

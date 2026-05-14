@@ -160,6 +160,24 @@ class AuthService:
         return self._build_token(response.user, response.session)
 
     # ──────────────────────────────────────────
+    # Logout
+    # ──────────────────────────────────────────
+
+    def logout_user(self) -> None:
+        """
+        Invalidate the current session on Supabase.
+        sign_out() revokes the refresh token server-side so it cannot be
+        reused even if the client still holds it.
+        """
+        try:
+            supabase.auth.sign_out()
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Logout failed. Please try again.",
+            )
+
+    # ──────────────────────────────────────────
     # Health Profile
     # ──────────────────────────────────────────
 
