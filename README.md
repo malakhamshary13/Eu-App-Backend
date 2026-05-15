@@ -158,8 +158,6 @@ HTTP Request
                             └──> endpoint handler
 ```
 
-![Auth flow diagram](assets/images/auth-flow.png)
-
 All protected endpoints require:
 
 ```http
@@ -233,7 +231,7 @@ Manages user registration, login, token lifecycle, health profiles, and admin us
 
 Admin-managed exercise library. Users can browse and filter; admins create, update, and delete.
 
-![Exercises Endpoints](assets/images/exercises_swagger.png)
+![Exercises Endpoints](assets/images/Exercises_swagger.png)
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
@@ -251,7 +249,7 @@ Admin-managed exercise library. Users can browse and filter; admins create, upda
 
 Workout plan and routine management. Users can create personal plans; admins create shareable templates. Plans contain routines, routines contain exercises.
 
-![Workouts Endpoints](assets/images/workouts_swagger.png)
+![Workouts Endpoints](assets/images/Workouts_swagger.png)
 
 **Data hierarchy:**
 ```
@@ -279,7 +277,7 @@ WorkoutPlan
 
 Admin-managed meal library with full nutrition data. Users browse meals to add to plans or schedules.
 
-![Meals Endpoints](assets/images/meals_swagger.png)
+![Meals Endpoints](assets/images/Meals_swagger.png)
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
@@ -300,7 +298,7 @@ Admin-managed meal library with full nutrition data. Users browse meals to add t
 
 Create and manage meal plans. Admins create templates; users create personal plans. Meals are assigned to typed slots (breakfast / lunch / dinner / snack).
 
-![Meal Plans Endpoints](assets/images/meal_plans_swagger.png)
+![Meal Plans Endpoints](assets/images/Meal_Plans_swagger.png)
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
@@ -321,7 +319,7 @@ Create and manage meal plans. Admins create templates; users create personal pla
 
 Schedule meals on specific dates and times, track eaten status, and query nutrition aggregates via stored procedures.
 
-![Meal Tracking & Nutrition Endpoints](assets/images/meal_tracking_nutrition_swagger.png)
+![Meal Tracking & Nutrition Endpoints](assets/images/Meal_Nutrition_swagger.png)
 
 | Method | Endpoint | Auth | Rate Limit | Description |
 |---|---|---|---|---|
@@ -348,7 +346,7 @@ Returns aggregated totals via the `public.get_user_nutrition_stats` stored proce
 
 Real-time workout session logging. Users create sessions tied to a workout plan/routine, then log individual sets per exercise.
 
-![Workout Tracking Endpoints](assets/images/workout_tracking_swagger.png)
+![Workout Tracking Endpoints](assets/images/Workout_tracking_swagger.png)
 
 **Session status lifecycle (forward-only):**
 ```
@@ -381,7 +379,7 @@ scheduled → in_progress → completed  (terminal)
 
 Enroll users in workout, meal, and/or rehab plans. Tracks enrollment status. Enforces **one active enrollment per plan type** per user.
 
-![Enrollment Endpoints](assets/images/enrollment_swagger.png)
+![Enrollment Endpoints](assets/images/plan_enrollments_swagger.png)
 
 
 **Enrollment status lifecycle (forward-only):**
@@ -409,7 +407,7 @@ The `/active/workout` and `/active/rehab` endpoints are used by the frontend das
 
 One daily summary log per user per calendar day. Tracks calories consumed, workouts completed, and recovery notes. Used for progress heatmaps and calendar views.
 
-![Daily Logs Endpoints](assets/images/daily_logs_swagger.png)
+![Daily Logs Endpoints](assets/images/Daily_Logs_swagger.png)
 
 | Method | Endpoint | Auth | Rate Limit | Description |
 |---|---|---|---|---|
@@ -426,7 +424,7 @@ One daily summary log per user per calendar day. Tracks calories consumed, worko
 
 Rehabilitation library and plan management. Covers rehab conditions, rehab exercises, user condition assignment, and full CRUD for rehab plans, routines, and exercises.
 
-![Rehab Endpoints](assets/images/rehab_swagger.png)
+![Rehab Endpoints](assets/images/Rehab_swagger.png)
 
 **Data hierarchy:**
 ```
@@ -462,7 +460,7 @@ RehabPlan (per user)
 
 Real-time rehabilitation session tracking with pain level monitoring. Sessions are tied to a rehab plan routine. Exercises are **auto-populated** from the routine prescription on session creation. Backed by stored procedures for analytics.
 
-![Rehab Tracking Endpoints](assets/images/rehab_tracking_swagger.png)
+![Rehab Tracking Endpoints](assets/images/Rehab_Tracking_swagger.png)
 
 **Session status lifecycle (forward-only):**
 ```
