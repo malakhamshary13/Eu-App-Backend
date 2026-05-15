@@ -1,9 +1,10 @@
 fastapi
-uvicorn
 sqlalchemy
-python-jose[cryptography]
-passlib==1.7.4
-bcrypt==4.0.1
-python-multipart
-python-dotenv
-email-validator
+supabase
+dotenv
+pydantic
+uvicorn
+datetime
+psycopg2
+pydantic[email]
+slowapi
