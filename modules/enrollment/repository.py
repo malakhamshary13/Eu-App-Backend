@@ -55,6 +55,7 @@ class EnrollmentRepository:
         user_id: uuid.UUID,
         workout_plan_id: Optional[uuid.UUID],
         meal_plan_id: Optional[uuid.UUID],
+        rehab_plan_id: Optional[uuid.UUID],
     ) -> None:
         """
         Prevent duplicate active enrollments in the same plan type.
@@ -100,6 +101,26 @@ class EnrollmentRepository:
                     ),
                 )
 
+        if rehab_plan_id:
+            conflict = (
+                db.query(UserPlanEnrollment)
+                .filter(
+                    UserPlanEnrollment.user_id == user_id,
+                    UserPlanEnrollment.rehab_plan_id.isnot(None),
+                    UserPlanEnrollment.status == "active",
+                )
+                .first()
+            )
+            if conflict:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"You already have an active rehab-plan enrollment "
+                        f"(id={conflict.id}). "
+                        "Drop or complete it before enrolling in a new plan."
+                    ),
+                )
+
     # ──────────────────────────────────────────────────────────────────────────
     # Create
     # ──────────────────────────────────────────────────────────────────────────
@@ -111,12 +132,13 @@ class EnrollmentRepository:
         data: EnrollmentCreate,
     ) -> UserPlanEnrollment:
         self._check_no_active_conflict(
-            db, user_id, data.workout_plan_id, data.meal_plan_id
+            db, user_id, data.workout_plan_id, data.meal_plan_id, data.rehab_plan_id
         )
         enrollment = UserPlanEnrollment(
             user_id=user_id,
             workout_plan_id=data.workout_plan_id,
             meal_plan_id=data.meal_plan_id,
+            rehab_plan_id=data.rehab_plan_id,
             status="active",
         )
         db.add(enrollment)
@@ -167,6 +189,19 @@ class EnrollmentRepository:
             .filter(
                 UserPlanEnrollment.user_id == user_id,
                 UserPlanEnrollment.meal_plan_id.isnot(None),
+                UserPlanEnrollment.status == "active",
+            )
+            .first()
+        )
+
+    def get_active_rehab_enrollment(
+        self, db: Session, user_id: uuid.UUID
+    ) -> Optional[UserPlanEnrollment]:
+        return (
+            db.query(UserPlanEnrollment)
+            .filter(
+                UserPlanEnrollment.user_id == user_id,
+                UserPlanEnrollment.rehab_plan_id.isnot(None),
                 UserPlanEnrollment.status == "active",
             )
             .first()

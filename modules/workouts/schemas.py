@@ -1,7 +1,7 @@
 import uuid
 from datetime import date
-from typing import Optional, List
-from pydantic import BaseModel
+from typing import Optional, List, Literal
+from pydantic import BaseModel, Field
 
 from db.database import ORMBaseModel
 
@@ -29,12 +29,12 @@ class ExerciseDetailInRoutine(ORMBaseModel):
 
 class RoutineExerciseCreate(BaseModel):
     """Add a single exercise to a routine."""
-    exercise_id: uuid.UUID
-    position: int = 0
-    sets: Optional[int] = None
-    reps: Optional[int] = None
-    weight_kg: Optional[float] = None
-    rest_time_seconds: Optional[int] = None
+    exercise_id:       uuid.UUID
+    position:          int            = 0
+    sets:              Optional[int]   = Field(None, ge=1, description="Sets (>= 1).")
+    reps:              Optional[int]   = Field(None, ge=0, description="Reps per set (>= 0).")
+    weight_kg:         Optional[float] = Field(None, ge=0.0, description="Weight in kg (>= 0).")
+    rest_time_seconds: Optional[int]   = Field(None, ge=0, description="Rest in seconds (>= 0).")
 
 
 class RoutineExerciseResponse(ORMBaseModel):
@@ -87,22 +87,22 @@ class WorkoutPlanRoutineResponse(ORMBaseModel):
 
 class WorkoutPlanCreate(BaseModel):
     """POST /workouts/plans — plan metadata only, no inline slots."""
-    title: str
-    difficulty_level: Optional[str] = None    # 'beginner' | 'intermediate' | 'advanced'
-    schedule_type: str = "nday"               # 'nday' | 'weekly'
-    description: Optional[str] = None
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
+    title:            str
+    difficulty_level: Optional[Literal["beginner", "intermediate", "advanced"]] = None
+    schedule_type:    Literal["nday", "weekly"] = "nday"
+    description:      Optional[str]  = None
+    start_date:       Optional[date] = None
+    end_date:         Optional[date] = None
 
 
 class WorkoutPlanUpdate(BaseModel):
     """Partial update of a workout plan (owner only)."""
-    title: Optional[str] = None
-    difficulty_level: Optional[str] = None
-    schedule_type: Optional[str] = None
-    description: Optional[str] = None
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
+    title:            Optional[str]   = None
+    difficulty_level: Optional[Literal["beginner", "intermediate", "advanced"]] = None
+    schedule_type:    Optional[Literal["nday", "weekly"]] = None
+    description:      Optional[str]  = None
+    start_date:       Optional[date] = None
+    end_date:         Optional[date] = None
 
 
 class WorkoutPlanResponse(ORMBaseModel):

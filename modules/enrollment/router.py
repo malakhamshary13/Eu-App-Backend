@@ -122,6 +122,34 @@ def get_active_meal_enrollment(
 
 
 @router.get(
+    "/active/rehab",
+    response_model=EnrollmentResponse,
+    summary="Get my currently active rehab plan enrollment",
+)
+@limiter.limit("30/minute")
+def get_active_rehab_enrollment(
+    request: Request,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns the single active rehab plan enrollment, or **404** if the
+    user is not currently enrolled in any rehab plan.
+
+    Use this on the dashboard to know which rehab plan is driving
+    the user's current rehabilitation sessions.
+    """
+    user_id = uuid.UUID(str(current_user.id))
+    enrollment = service.get_active_rehab_enrollment(db, user_id)
+    if not enrollment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active rehab plan enrollment found.",
+        )
+    return enrollment
+
+
+@router.get(
     "/{enrollment_id}",
     response_model=EnrollmentResponse,
     summary="Get a specific enrollment by ID",

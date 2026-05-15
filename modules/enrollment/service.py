@@ -25,6 +25,9 @@ class EnrollmentService:
     def get_active_meal_enrollment(self, db: Session, user_id: uuid.UUID):
         return _repo.get_active_meal_enrollment(db, user_id)
 
+    def get_active_rehab_enrollment(self, db: Session, user_id: uuid.UUID):
+        return _repo.get_active_rehab_enrollment(db, user_id)
+
     def update_status(self, db: Session, enrollment_id: uuid.UUID, user_id: uuid.UUID, data: EnrollmentStatusUpdate):
         return _repo.update_status(db, enrollment_id, user_id, data)
 

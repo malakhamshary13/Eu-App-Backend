@@ -1,7 +1,7 @@
 import uuid
 from datetime import date
-from typing import Optional, List
-from pydantic import BaseModel
+from typing import Optional, List, Literal
+from pydantic import BaseModel, Field
 
 from db.database import ORMBaseModel
 from modules.meals.schemas import MealListItem
@@ -14,7 +14,7 @@ from modules.meals.schemas import MealListItem
 class MealPlanSlotCreate(BaseModel):
     """Assign a meal to a slot in the plan."""
     meal_id:   uuid.UUID
-    meal_type: str          # 'breakfast' | 'lunch' | 'dinner' | 'snack'
+    meal_type: Literal["breakfast", "lunch", "dinner", "snack"]
     note:      Optional[str] = None
 
 
@@ -54,10 +54,12 @@ class MealPlanCreate(BaseModel):
     """POST /meal-plans/ — create a personal meal plan."""
     title:               str
     description:         Optional[str]       = None
-    goal_type:           Optional[str]       = None   # 'weight_loss' | 'muscle_gain' | …
+    goal_type:           Optional[Literal[
+        "weight_loss", "muscle_gain", "rehab", "general"
+    ]] = None
     start_date:          Optional[date]      = None
-    end_date:            Optional[date]      = None
-    target_condition_id: Optional[uuid.UUID] = None   # optional condition link
+    end_date:            Optional[date]      = Field(None, description="Must be >= start_date.")
+    target_condition_id: Optional[uuid.UUID] = None
 
 
 class MealPlanUpdate(BaseModel):
