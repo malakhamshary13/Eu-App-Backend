@@ -192,7 +192,7 @@ Tables are organized into PostgreSQL **schema namespaces**:
 | `tracker` | High-write live tracking data — sessions, logs, schedules |
 | `public` | Stored procedures for analytics aggregations |
 
-![Database schema diagram](assets/images/db-schema.svg)
+![Database schema diagram](assets/images/db_schema.svg)
 
 **Key design decisions:**
 
