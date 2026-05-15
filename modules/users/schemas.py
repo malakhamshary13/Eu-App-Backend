@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, Literal
 
 import uuid
@@ -33,18 +33,26 @@ class RefreshTokenRequest(BaseModel):
 
 
 class UserMetricInput(BaseModel):
-    """Payload for POST /auth/user-metrics"""
-    age: int
-    weight: float       # kg
-    height: float       # cm
-    gender: Optional[str] = None
-    primary_goal: str
-    fitness_level: str = "Beginner"
-    activity_level: str = "Sedentary"
-    daily_calorie_target: Optional[int] = None
-    injury_details: Optional[str] = None
-    recovery_stage: Optional[str] = None
-    medical_diet_notes: Optional[str] = None
+    """Payload for POST /auth/user-metrics.
+    All constraints mirror the DB CHECK constraints on profile.health_profiles.
+    """
+    age:            int   = Field(..., ge=5,   le=100,  description="Age in years (5–100).")
+    weight:         float = Field(..., ge=20,  le=300,  description="Weight in kg (20–300).")
+    height:         float = Field(..., ge=50,  le=280,  description="Height in cm (50–280).")
+    gender:         Literal["male", "female"]           # NOT NULL in DB — required
+    primary_goal:   Literal["weight_loss", "muscle_gain", "rehab", "general"] = "general"
+    fitness_level:  Literal["Beginner", "Intermediate", "Advanced"] = "Beginner"
+    activity_level: Literal[
+        "Sedentary",
+        "Lightly Active",
+        "Moderately Active",
+        "Very Active",
+        "Extra Active",
+    ] = "Sedentary"
+    daily_calorie_target: Optional[int]   = Field(None, ge=500, le=10000, description="Target kcal/day (500‚Äì10 000).")
+    injury_details:       Optional[str]  = None
+    recovery_stage:       Optional[Literal["acute", "sub-acute", "chronic"]] = None
+    medical_diet_notes:   Optional[str]  = None
 
 
 # ──────────────────────────────────────────

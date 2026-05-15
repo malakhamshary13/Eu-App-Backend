@@ -30,22 +30,36 @@ class WorkoutPlanSummary(ORMBaseModel):
     description: Optional[str] = None
 
 
+class RehabPlanSummary(ORMBaseModel):
+    id:          uuid.UUID
+    title:       str
+    description: Optional[str] = None
+    is_active:   Optional[bool] = None
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Enrollment schemas
 # ─────────────────────────────────────────────────────────────────────────────
 class EnrollmentCreate(BaseModel):
     """
-    Enroll the authenticated user in a workout plan, a meal plan, or both.
-    At least one of `workout_plan_id` / `meal_plan_id` must be supplied.
+    Enroll the authenticated user in a workout plan, a meal plan,
+    a rehab plan, or any combination of the three.
+    At least one plan ID must be supplied.
     """
     workout_plan_id: Optional[uuid.UUID] = None
     meal_plan_id:    Optional[uuid.UUID] = None
+    rehab_plan_id:   Optional[uuid.UUID] = None
 
     @model_validator(mode="after")
     def at_least_one_plan(self) -> "EnrollmentCreate":
-        if self.workout_plan_id is None and self.meal_plan_id is None:
+        if (
+            self.workout_plan_id is None
+            and self.meal_plan_id is None
+            and self.rehab_plan_id is None
+        ):
             raise ValueError(
-                "At least one of workout_plan_id or meal_plan_id must be provided."
+                "At least one of workout_plan_id, meal_plan_id, "
+                "or rehab_plan_id must be provided."
             )
         return self
 
@@ -60,6 +74,8 @@ class EnrollmentResponse(ORMBaseModel):
     user_id:         uuid.UUID
     workout_plan_id: Optional[uuid.UUID]  = None
     meal_plan_id:    Optional[uuid.UUID]  = None
+    rehab_plan_id:   Optional[uuid.UUID]  = None
     status:          str
     enrolled_at:     datetime
     workout_plan:    Optional[WorkoutPlanSummary] = None
+    rehab_plan:      Optional[RehabPlanSummary]   = None

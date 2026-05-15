@@ -12,8 +12,9 @@ class UserPlanEnrollment(Base):
     """
     Maps to plans.user_plan_enrollments.
 
-    A user may be enrolled in at most one workout plan and one meal plan
-    at a time in 'active' status (enforced at the application layer).
+    A user may be enrolled in at most one workout plan, one meal plan,
+    and one rehab plan at a time in 'active' status (enforced at the
+    application layer).
 
     Status lifecycle:
       active → paused → active   (resumable)
@@ -35,8 +36,14 @@ class UserPlanEnrollment(Base):
         ForeignKey("plans.meal_plans.id", ondelete="SET NULL"),
         nullable=True,
     )
+    rehab_plan_id   = Column(
+        UUID(as_uuid=True),
+        ForeignKey("plans.rehab_plans.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     status          = Column(String, nullable=False, default="active")
     # 'active' | 'paused' | 'completed' | 'dropped'
     enrolled_at     = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     workout_plan = relationship("WorkoutPlan", lazy="selectin", foreign_keys=[workout_plan_id])
+    rehab_plan   = relationship("RehabPlan",   lazy="selectin", foreign_keys=[rehab_plan_id])
