@@ -298,7 +298,7 @@ Admin-managed meal library with full nutrition data. Users browse meals to add t
 
 Create and manage meal plans. Admins create templates; users create personal plans. Meals are assigned to typed slots (breakfast / lunch / dinner / snack).
 
-![Meal Plans Endpoints](assets/images/Meal_Plans_swagger.png)
+![Meal Plans Endpoints](assets/images/Meals_Plan_swagger.png)
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
@@ -379,7 +379,7 @@ scheduled → in_progress → completed  (terminal)
 
 Enroll users in workout, meal, and/or rehab plans. Tracks enrollment status. Enforces **one active enrollment per plan type** per user.
 
-![Enrollment Endpoints](assets/images/plan_enrollments_swagger.png)
+![Enrollment Endpoints](assets/images/Plan_ernollments_swagger.png)
 
 
 **Enrollment status lifecycle (forward-only):**
@@ -424,7 +424,7 @@ One daily summary log per user per calendar day. Tracks calories consumed, worko
 
 Rehabilitation library and plan management. Covers rehab conditions, rehab exercises, user condition assignment, and full CRUD for rehab plans, routines, and exercises.
 
-![Rehab Endpoints](assets/images/Rehab_swagger.png)
+![Rehab Endpoints](assets/images/Rehab_Swagger.png)
 
 **Data hierarchy:**
 ```
